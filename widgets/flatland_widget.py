@@ -67,3 +67,10 @@ class FlatlandWidget(QWidget):
         self.label.setPixmap(pixmap.scaled(
             self.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
         ))
+
+
+    def visualise_disturbance(self, disturbance_info: dict):
+        """Visualise a disturbance in the environment."""
+        # TODO: implement highlighting / visualisation of disturbances
+        print(f"Flatlandwidget received disturbance info: {disturbance_info.get('type', 'Unknown')}")
+        
