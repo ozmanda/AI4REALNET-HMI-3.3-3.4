@@ -12,6 +12,7 @@ from utils.env_reference import EnvReference
 
 from flatland.envs.rail_env import RailEnv 
 from utils.env_small import small_flatland_env 
+from test_data.test_disturbances import small_test_disturbances
 
 
 # HMI Main Window
@@ -91,14 +92,19 @@ class MainWindow(QMainWindow):
         right_panel = QVBoxLayout()
         
         # Disturbances
-        disturbances_frame = DisturbanceWidget()
+        self.disturbances_widget = DisturbanceWidget()
+        self.disturbances_widget.disturbance_selected.connect(self.flatland_widget.visualise_disturbance)  # Connect disturbance selection to FlatlandWidget for visualisation
+        disturbances = small_test_disturbances()  # Load test disturbances
+        for disturbance in disturbances:
+            print(disturbance)
+            self.disturbances_widget.add_disturbance(disturbance)
 
         # Evaluation
-        evaluation_frame = EvaluationWidget()
+        self.evaluation_widget = EvaluationWidget()
         
         # Add to right panel
-        right_panel.addWidget(disturbances_frame, stretch=1)
-        right_panel.addWidget(evaluation_frame, stretch=1)
+        right_panel.addWidget(self.disturbances_widget, stretch=1)
+        right_panel.addWidget(self.evaluation_widget, stretch=1)
         right_panel.minimumSize = QSize(512, 0)  # Minimum width for the right panel
 
         # Main layout
