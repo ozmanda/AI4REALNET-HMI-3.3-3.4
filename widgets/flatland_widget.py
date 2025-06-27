@@ -29,7 +29,7 @@ class FlatlandWidget(QWidget):
         self.setLayout(layout)
 
         # Store the last rendered image
-        self._last_render = None
+        self._last_render = {'env': None, 'track': None, 'switch': None}
 
         # Flag for click registration mode
         self.click_registration_enabled = False
@@ -42,7 +42,7 @@ class FlatlandWidget(QWidget):
         self.renderer = RenderTool(self.env_ref.env, gl="PILSVG", screen_height=600, screen_width=1800)
         self.renderer.render_env(show=False, show_observations=False)
         img = self.renderer.get_image()
-        self._last_render = img
+        self._last_render['env'] = img
         self._render_to_label()
 
 
@@ -52,11 +52,11 @@ class FlatlandWidget(QWidget):
         self._render_to_label()
 
 
-    def _render_to_label(self):
+    def _render_to_label(self, type='env'):
         """Render stored image to QLabel scaled to widget size, using RGB format and no channel swap."""
-        if self._last_render is None:
+        if self._last_render[type] is None:
             return
-        img = self._last_render
+        img = self._last_render[type]
 
         # Ensure image is uint8 and contiguous
         if img.dtype != np.uint8:
@@ -87,24 +87,38 @@ class FlatlandWidget(QWidget):
         print(f"Flatlandwidget received disturbance info: {disturbance_info.get('type', 'Unknown')}")
 
     def toggle_infrastructure_selection(self):
-        """Toggle infrastructure selection mode."""
-        self.click_registration_enabled = self.infrastructure_selection_button.isChecked()
+        """ Toggle infrastructure selection mode."""
+        if self.infrastructure_selection_button.isChecked():
+            self.train_selection_button.setChecked(False)
+            self.track_view_button.setChecked(False)
+            self.switch_view_button.setChecked(False)
+            self.click_registration_enabled = True
+        
         print(f"Click registration {'enabled' if self.click_registration_enabled else 'disabled'}")
 
     
     def toggle_train_selection(self):
-        """Toggle train selection mode."""
-        self.click_registration_enabled = self.train_selection_button.isChecked()
+        """ Toggle train selection mode."""
+        if self.train_selection_button.isChecked():
+            self.infrastructure_selection_button.setChecked(False)
+            self.track_view_button.setChecked(False)
+            self.switch_view_button.setChecked(False)
+            self.click_registration_enabled = True
         print("Train selection mode toggled (not implemented yet)")
 
 
     def toggle_trackID_view(self):
-        """Toggle track ID view mode."""
+        """ Toggle track ID view mode."""
+        if self.track_view_button.isChecked():
+            self.infrastructure_selection_button.setChecked(False)
+            self.train_selection_button.setChecked(False)
+            self.switch_view_button.setChecked(False)
+            self.click_registration_enabled = False
         print("Track ID view mode toggled (not implemented yet)")
 
 
     def toggle_switchID_view(self):
-        """Toggle switch ID view mode."""
+        """ Toggle switch ID view mode."""
         print("Switch ID view mode toggled (not implemented yet)")
 
 
