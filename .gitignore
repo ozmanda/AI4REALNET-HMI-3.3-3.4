@@ -1,3 +1,5 @@
 /.venv
 /__pycache__
 **/__pycache__/
+widgets/__pycache__/disturbances.cpython-310.pyc
+widgets/__pycache__/flatland_widget.cpython-310.pyc
