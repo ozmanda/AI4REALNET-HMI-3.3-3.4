@@ -1,6 +1,6 @@
 import sys
 import numpy as np
-from PyQt6.QtWidgets import QLabel, QWidget, QVBoxLayout, QSizePolicy, QPushButton
+from PyQt6.QtWidgets import QLabel, QWidget, QVBoxLayout, QSizePolicy, QPushButton, QHBoxLayout
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtCore import Qt
 from flatland.utils.rendertools import RenderTool
@@ -16,12 +16,15 @@ class FlatlandWidget(QWidget):
         layout = QVBoxLayout()
         layout.addWidget(self.label)
 
-        # Add button for enabling click registration
-        self.register_button = QPushButton("Enable Click Registration")
-        self.register_button.setStyleSheet("color: black;")
-        self.register_button.setCheckable(True)
-        self.register_button.clicked.connect(self.toggle_click_registration)
-        layout.addWidget(self.register_button)
+        # Add button for track / switch selection and track/switch view
+        self.env_view_buttons()
+        layout.addWidget(self.view_buttons_widget)
+
+        # self.register_button = QPushButton("Enable Click Registration")
+        # self.register_button.setStyleSheet("color: black;")
+        # self.register_button.setCheckable(True)
+        # self.register_button.clicked.connect(self.toggle_click_registration)
+        # layout.addWidget(self.register_button)
 
         self.setLayout(layout)
 
@@ -83,10 +86,27 @@ class FlatlandWidget(QWidget):
         # TODO: implement highlighting / visualisation of disturbances
         print(f"Flatlandwidget received disturbance info: {disturbance_info.get('type', 'Unknown')}")
 
-    def toggle_click_registration(self):
-        """Toggle click registration mode."""
-        self.click_registration_enabled = self.register_button.isChecked()
+    def toggle_infrastructure_selection(self):
+        """Toggle infrastructure selection mode."""
+        self.click_registration_enabled = self.infrastructure_selection_button.isChecked()
         print(f"Click registration {'enabled' if self.click_registration_enabled else 'disabled'}")
+
+    
+    def toggle_train_selection(self):
+        """Toggle train selection mode."""
+        self.click_registration_enabled = self.train_selection_button.isChecked()
+        print("Train selection mode toggled (not implemented yet)")
+
+
+    def toggle_trackID_view(self):
+        """Toggle track ID view mode."""
+        print("Track ID view mode toggled (not implemented yet)")
+
+
+    def toggle_switchID_view(self):
+        """Toggle switch ID view mode."""
+        print("Switch ID view mode toggled (not implemented yet)")
+
 
     def mousePressEvent(self, event):
         """Handle mouse click events to register clicks."""
@@ -94,13 +114,69 @@ class FlatlandWidget(QWidget):
             click_x = event.position().x()
             click_y = event.position().y()
 
-            # Map click position to grid position
+            # Get the actual dimensions of the image displayed within the QLabel
+            pixmap = self.label.pixmap()
+            if pixmap is None:
+                print("No image loaded in QLabel.")
+                return
+
+            pixmap_width = pixmap.width()
+            pixmap_height = pixmap.height()
+
+            # Calculate the top-left corner of the image within the QLabel
+            label_width = self.label.width()
+            label_height = self.label.height()
+
+            image_x_offset = (label_width - pixmap_width) // 2 if label_width > pixmap_width else 0
+            image_y_offset = (label_height - pixmap_height) // 2 if label_height > pixmap_height else 0
+
+            # Adjust click coordinates to account for the image's position within the QLabel
+            adjusted_x = click_x - image_x_offset
+            adjusted_y = click_y - image_y_offset
+
+            # Ensure the click is within the image bounds
+            if not (0 <= adjusted_x < pixmap_width and 0 <= adjusted_y < pixmap_height):
+                print("Click outside the image bounds.")
+                return
+
+            # Map adjusted coordinates to grid position
             grid_width = self.env_ref.env.width
             grid_height = self.env_ref.env.height
-            widget_width = self.width()
-            widget_height = self.height()
 
-            grid_x = int(click_x / widget_width * grid_width)
-            grid_y = int(click_y / widget_height * grid_height)
+            grid_x = int(adjusted_x / pixmap_width * grid_width)
+            grid_y = int(adjusted_y / pixmap_height * grid_height)
 
             print(f"Click registered at grid position: ({grid_x}, {grid_y})")
+    
+
+    def env_view_buttons(self):
+        """Create buttons for environment view actions."""
+        # Wrap view_buttons in a QWidget
+        self.view_buttons_widget = QWidget()
+        self.view_buttons: QHBoxLayout = QHBoxLayout()
+        self.infrastructure_selection_button = QPushButton("Select Track/Switch")
+        self.infrastructure_selection_button.setCheckable(True)
+        self.infrastructure_selection_button.clicked.connect(self.toggle_infrastructure_selection)
+        self.infrastructure_selection_button.setStyleSheet("color: black;")
+
+        self.train_selection_button = QPushButton("Select Train")
+        self.train_selection_button.setCheckable(True)
+        self.train_selection_button.clicked.connect(self.toggle_train_selection)
+        self.train_selection_button.setStyleSheet("color: black;")
+
+        self.track_view_button = QPushButton("Track ID View")
+        self.track_view_button.setCheckable(True)
+        self.track_view_button.clicked.connect(self.toggle_trackID_view)
+        self.track_view_button.setStyleSheet("color: black;")
+
+        self.switch_view_button = QPushButton("Switch ID View")
+        self.switch_view_button.setCheckable(True)
+        self.switch_view_button.clicked.connect(self.toggle_switchID_view)
+        self.switch_view_button.setStyleSheet("color: black;")
+
+        self.view_buttons.addWidget(self.infrastructure_selection_button)
+        self.view_buttons.addWidget(self.train_selection_button)
+        self.view_buttons.addWidget(self.track_view_button)
+        self.view_buttons.addWidget(self.switch_view_button)
+
+        self.view_buttons_widget.setLayout(self.view_buttons)
