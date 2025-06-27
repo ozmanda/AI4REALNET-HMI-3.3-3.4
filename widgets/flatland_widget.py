@@ -1,11 +1,9 @@
 import sys
 import numpy as np
-from PyQt6.QtWidgets import QApplication, QLabel, QWidget, QVBoxLayout, QPushButton, QSizePolicy
+from PyQt6.QtWidgets import QLabel, QWidget, QVBoxLayout, QSizePolicy, QPushButton
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtCore import Qt
-from PIL import Image
 from flatland.utils.rendertools import RenderTool
-from flatland.envs.rail_env import RailEnv
 from utils.env_reference import EnvReference
 
 class FlatlandWidget(QWidget):
@@ -17,10 +15,21 @@ class FlatlandWidget(QWidget):
 
         layout = QVBoxLayout()
         layout.addWidget(self.label)
+
+        # Add button for enabling click registration
+        self.register_button = QPushButton("Enable Click Registration")
+        self.register_button.setStyleSheet("color: black;")
+        self.register_button.setCheckable(True)
+        self.register_button.clicked.connect(self.toggle_click_registration)
+        layout.addWidget(self.register_button)
+
         self.setLayout(layout)
 
         # Store the last rendered image
         self._last_render = None
+
+        # Flag for click registration mode
+        self.click_registration_enabled = False
 
         # render the initial environment
         self.update_from_env()
@@ -73,4 +82,25 @@ class FlatlandWidget(QWidget):
         """Visualise a disturbance in the environment."""
         # TODO: implement highlighting / visualisation of disturbances
         print(f"Flatlandwidget received disturbance info: {disturbance_info.get('type', 'Unknown')}")
-        
+
+    def toggle_click_registration(self):
+        """Toggle click registration mode."""
+        self.click_registration_enabled = self.register_button.isChecked()
+        print(f"Click registration {'enabled' if self.click_registration_enabled else 'disabled'}")
+
+    def mousePressEvent(self, event):
+        """Handle mouse click events to register clicks."""
+        if self.click_registration_enabled:
+            click_x = event.position().x()
+            click_y = event.position().y()
+
+            # Map click position to grid position
+            grid_width = self.env_ref.env.width
+            grid_height = self.env_ref.env.height
+            widget_width = self.width()
+            widget_height = self.height()
+
+            grid_x = int(click_x / widget_width * grid_width)
+            grid_y = int(click_y / widget_height * grid_height)
+
+            print(f"Click registered at grid position: ({grid_x}, {grid_y})")
