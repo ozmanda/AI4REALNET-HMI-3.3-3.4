@@ -74,6 +74,7 @@ class DisturbanceWidget(QFrame):
 
     def _handle_solution_generation(self, disturbance_ID: str):
         self.dist_text.append(f"Generating solution for disturbance ID: {disturbance_ID}...\n")
+        self.solution_generation.emit(disturbance_ID)
 
 
 class DisturbanceObject(QWidget):
