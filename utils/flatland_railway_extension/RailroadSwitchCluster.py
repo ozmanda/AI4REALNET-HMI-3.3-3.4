@@ -174,16 +174,6 @@ class RailroadSwitchCluster:
                     connecting_edge_cluster_grid_image[(h, w)] = np.nan
                     railroad_switch_cluster_grid_image[(h, w)] = np.nan
 
-        print('railroad_switch_cluster_grid')
-        print(self.railroad_switch_cluster_grid)
-        print('connecting_edge_cluster_grid')
-        print(self.connecting_edge_cluster_grid)
-
-        print('railroad_switch_clusters')
-        print(self.railroad_switch_clusters)
-        print('connecting_edge_clusters')
-        print(self.connecting_edge_clusters)
-
         plt.rc('font', size=6)
         fig1 = plt.subplot(1, 1, 1)
         fig1.imshow(connecting_edge_cluster_grid_image)
