@@ -83,4 +83,4 @@ class ActionTokenSelector(QWidget):
         """Clear all action tokens."""
         self.action_combo.clear()
         self.action_combo.addItems(['Select Action Token'] + action_tokens)
-        self.update_dynamic_widget(0)
+        self._update_dynamic_widget(0)
