@@ -10,7 +10,7 @@ class HumanInputWidget(QFrame):
     def __init__(self, env_ref: EnvReference, parent=None):
         super().__init__(parent)
         self.setFrameShape(QFrame.Shape.Box)
-        tokens_layout = QVBoxLayout(self)
+        tokens_layout = QHBoxLayout(self)
         
         # Apply Button
         apply_btn = QPushButton()
