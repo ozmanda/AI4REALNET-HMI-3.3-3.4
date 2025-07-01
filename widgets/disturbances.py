@@ -3,6 +3,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 
 class DisturbanceWidget(QFrame):
     disturbance_selected = pyqtSignal(dict)  # Emits the disturbance type when clicked
+    solution_generation = pyqtSignal(str)  # Emits the disturbance ID when a solution generation is requested
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFrameShape(QFrame.Shape.Box)
@@ -66,10 +67,13 @@ class DisturbanceWidget(QFrame):
         self.dist_layout.addWidget(disturbance_object)
 
     def _on_disturbance_clicked(self, disturbance_info: dict):
-        print(f"Disturbance clicked: {disturbance_info.get('ID', '0000')}")
         self.disturbance_selected.emit(disturbance_info)
         dialog = DisturbanceDetailDialog(disturbance_info)
+        dialog.solution_generated.connect(self._handle_solution_generation)
         dialog.exec()
+
+    def _handle_solution_generation(self, disturbance_ID: str):
+        self.dist_text.append(f"Generating solution for disturbance ID: {disturbance_ID}...\n")
 
 
 class DisturbanceObject(QWidget):
@@ -122,9 +126,12 @@ class DisturbanceObject(QWidget):
     
 
 class DisturbanceDetailDialog(QDialog):
+    # Signals 
+    solution_generated = pyqtSignal(str)  
     def __init__(self, disturbance_info: dict, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(f"{disturbance_info.get('ID', '0000')} {disturbance_info.get('type', 'Unknown Type')} Details")
+        self.disturbance_ID = disturbance_info.get('ID', '0000')
+        self.setWindowTitle(f"<b>{self.disturbance_ID}</b> {disturbance_info.get('type', 'Unknown Type')} Details")
         self.setMinimumWidth(300)
         layout = QVBoxLayout(self)
 
@@ -142,7 +149,7 @@ class DisturbanceDetailDialog(QDialog):
 
     def _on_solution(self):
         # Placeholder logic
-        print("Solution generated!")
+        self.solution_generated.emit(str(self.disturbance_ID))
         self.close()
 
 
