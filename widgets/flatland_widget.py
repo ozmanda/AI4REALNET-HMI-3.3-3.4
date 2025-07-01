@@ -5,6 +5,10 @@ from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtCore import Qt
 from flatland.utils.rendertools import RenderTool
 from utils.env_reference import EnvReference
+from utils.flatland_railway_extension.RailroadSwitchCluster import RailroadSwitchCluster
+from utils.flatland_railway_extension.RailroadSwitchAnalyser import RailroadSwitchAnalyser
+from matplotlib import pyplot as plt
+from PIL import Image
 
 class FlatlandWidget(QWidget):
     def __init__(self, env_ref: EnvReference, parent=None):
@@ -18,31 +22,29 @@ class FlatlandWidget(QWidget):
 
         # Add button for track / switch selection and track/switch view
         self.env_view_buttons()
+        self.click_registration_enabled = False
         layout.addWidget(self.view_buttons_widget)
-
-        # self.register_button = QPushButton("Enable Click Registration")
-        # self.register_button.setStyleSheet("color: black;")
-        # self.register_button.setCheckable(True)
-        # self.register_button.clicked.connect(self.toggle_click_registration)
-        # layout.addWidget(self.register_button)
-
         self.setLayout(layout)
 
         # Store the last rendered image
         self._last_render = {'env': None, 'track': None, 'switch': None}
-
-        # Flag for click registration mode
-        self.click_registration_enabled = False
+        self.render_type = 'env'
 
         # render the initial environment
         self.update_from_env()
 
     def update_from_env(self):
         """ Render the current environment and store the image."""
+        self.railroad_cluster: RailroadSwitchCluster = RailroadSwitchCluster(RailroadSwitchAnalyser(self.env_ref.env))
+        track_image, switch_image = self.railroad_cluster.do_debug_plot()
         self.renderer = RenderTool(self.env_ref.env, gl="PILSVG", screen_height=600, screen_width=1800)
         self.renderer.render_env(show=False, show_observations=False)
         img = self.renderer.get_image()
+        # Save the rendered image to "flatland_env.png"
+        Image.fromarray(img).save("flatland_env.png")
         self._last_render['env'] = img
+        self._last_render['track'] = track_image
+        self._last_render['switch'] = switch_image
         self._render_to_label()
 
 
@@ -52,11 +54,11 @@ class FlatlandWidget(QWidget):
         self._render_to_label()
 
 
-    def _render_to_label(self, type='env'):
+    def _render_to_label(self):
         """Render stored image to QLabel scaled to widget size, using RGB format and no channel swap."""
-        if self._last_render[type] is None:
+        if self._last_render[self.render_type] is None:
             return
-        img = self._last_render[type]
+        img = self._last_render[self.render_type]
 
         # Ensure image is uint8 and contiguous
         if img.dtype != np.uint8:
@@ -89,11 +91,14 @@ class FlatlandWidget(QWidget):
     def toggle_infrastructure_selection(self):
         """ Toggle infrastructure selection mode."""
         if self.infrastructure_selection_button.isChecked():
+            if self.render_type != 'env':
+                self.render_type = 'env'
+                self._render_to_label()
             self.train_selection_button.setChecked(False)
             self.track_view_button.setChecked(False)
             self.switch_view_button.setChecked(False)
-            self.click_registration_enabled = True
-        
+        self.click_registration_enabled = self.infrastructure_selection_button.isChecked()
+        self.update_button_styles()
         print(f"Click registration {'enabled' if self.click_registration_enabled else 'disabled'}")
 
     
@@ -102,8 +107,9 @@ class FlatlandWidget(QWidget):
         if self.train_selection_button.isChecked():
             self.infrastructure_selection_button.setChecked(False)
             self.track_view_button.setChecked(False)
-            self.switch_view_button.setChecked(False)
-            self.click_registration_enabled = True
+            self.switch_view_button.setChecked(False)   
+        self.click_registration_enabled = self.train_selection_button.isChecked()
+        self.update_button_styles()         
         print("Train selection mode toggled (not implemented yet)")
 
 
@@ -113,12 +119,33 @@ class FlatlandWidget(QWidget):
             self.infrastructure_selection_button.setChecked(False)
             self.train_selection_button.setChecked(False)
             self.switch_view_button.setChecked(False)
-            self.click_registration_enabled = False
+            if self.render_type != 'track':
+                self.render_type = 'track'
+                self._render_to_label()
+        else:
+            if self.render_type != 'env':
+                self.render_type = 'env'
+                self._render_to_label()
+        self.click_registration_enabled = self.track_view_button.isChecked()
+        self.update_button_styles()
         print("Track ID view mode toggled (not implemented yet)")
 
 
     def toggle_switchID_view(self):
         """ Toggle switch ID view mode."""
+        if self.switch_view_button.isChecked():
+            self.infrastructure_selection_button.setChecked(False)
+            self.train_selection_button.setChecked(False)
+            self.track_view_button.setChecked(False)
+            if self.render_type != 'switch':
+                self.render_type = 'switch'
+                self._render_to_label()
+        else:
+            if self.render_type != 'env':
+                self.render_type = 'env'
+                self._render_to_label()
+        self.click_registration_enabled = self.switch_view_button.isChecked()
+        self.update_button_styles()
         print("Switch ID view mode toggled (not implemented yet)")
 
 
@@ -194,3 +221,13 @@ class FlatlandWidget(QWidget):
         self.view_buttons.addWidget(self.switch_view_button)
 
         self.view_buttons_widget.setLayout(self.view_buttons)
+
+        # Update button styles based on initial checked state
+
+    def update_button_styles(self):
+        """Update the styles of the buttons based on their checked state."""
+        for button in [self.infrastructure_selection_button, self.train_selection_button, self.track_view_button, self.switch_view_button]:
+            if button.isChecked():
+                button.setStyleSheet("color: black; background-color: lightgray;")
+            else:
+                button.setStyleSheet("color: black;")
