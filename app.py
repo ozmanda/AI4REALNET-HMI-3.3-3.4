@@ -3,6 +3,7 @@ from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QFrame, QSizePolicy, QStyle
 )
+from widgets import evaluation
 from widgets.flatland_widget import FlatlandWidget
 from widgets.action_token_selector import ActionTokenSelector
 from widgets.disturbances import DisturbanceWidget
@@ -79,13 +80,14 @@ class MainWindow(QMainWindow):
         # Disturbances
         self.disturbances_widget = DisturbanceWidget()
         self.disturbances_widget.disturbance_selected.connect(self.flatland_widget.visualise_disturbance)  # Connect disturbance selection to FlatlandWidget for visualisation
+        self.disturbances_widget.solution_generation.connect(self.handle_solution_generation_request)
         disturbances = small_test_disturbances()  # Load test disturbances
         for disturbance in disturbances:
-            print(disturbance)
             self.disturbances_widget.add_disturbance(disturbance)
 
         # Evaluation
         self.evaluation_widget = EvaluationWidget()
+        self.evaluation_widget.request_evaluation.connect(self.handle_evaluation_request)  # Connect evaluation request signal
         
         # Add to right panel
         right_panel.addWidget(self.disturbances_widget, stretch=1)
@@ -115,6 +117,23 @@ class MainWindow(QMainWindow):
         """Handle received action tokens from the HumanInputWidget."""
         print(f"Received tokens: {tokens}")
 
+    def handle_evaluation_request(self):
+        """Handle evaluation request from the user."""
+        evaluation_results: dict = {
+            'Environment': self.env_ref.get_environment_info(),
+            'Metrics': self.env_ref.get_metrics()
+            }
+        self.evaluation_widget.display_results(evaluation_results)
+
+    def handle_solution_generation_request(self, disturbance_ID: str):
+        """Handle solution generation request for a disturbance."""
+        # add solution generation logic here
+        solution_details = {
+            'Description': f"Solution for disturbance: {disturbance_ID}",
+            'Details': "Further details about the solution can be added here.",
+            'Actions': ["Action 1", "Action 2", "Action 3"]
+            } 
+        self.evaluation_widget.add_solution(solution_details)
 
 if __name__ == "__main__":
     # Initialize Flatland environment
