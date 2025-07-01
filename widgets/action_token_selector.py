@@ -84,3 +84,18 @@ class ActionTokenSelector(QWidget):
         self.action_combo.clear()
         self.action_combo.addItems(['Select Action Token'] + action_tokens)
         self._update_dynamic_widget(0)
+
+
+    def get_tokens(self):
+        """Get the currently selected action token and its associated data."""
+        action_token = self.action_combo.currentText()
+        if action_token == 'Select Action Token':
+            return None
+        
+        token_data = {0: action_token}
+        for i in range(self.dynamic_layout.count()):
+            widget = self.dynamic_layout.itemAt(i).widget()
+            if isinstance(widget, QComboBox):
+                token_data[i+1] = widget.currentText()
+        
+        return token_data

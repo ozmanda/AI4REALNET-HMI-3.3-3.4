@@ -7,6 +7,7 @@ from widgets.flatland_widget import FlatlandWidget
 from widgets.action_token_selector import ActionTokenSelector
 from widgets.disturbances import DisturbanceWidget
 from widgets.evaluation import EvaluationWidget
+from widgets.human_input import HumanInputWidget
 
 from utils.env_reference import EnvReference
 
@@ -61,25 +62,9 @@ class MainWindow(QMainWindow):
         play_slider_layout.addWidget(play_btn)
         play_slider_layout.addWidget(slider)
 
-        # Token area with lightbulb and delete button
-        # TODO: Nest action token selector inside of a frame
-        tokens_frame = QFrame()
-        tokens_frame.setFrameShape(QFrame.Shape.Box)
-        tokens_layout = QHBoxLayout(tokens_frame)
-        bulb_btn = QPushButton()
-        bulb_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton))
-        bulb_btn.setFixedSize(32, 32)
-        bulb_btn.clicked.connect(self.on_bulb_clicked) # TODO: move with token widget class, rename & connect to environment.
-        self.token_selector = ActionTokenSelector(env.get_agent_handles())
-        delete_btn = QPushButton()
-        delete_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
-        delete_btn.setFixedSize(32, 32)
-        delete_btn.clicked.connect(self.on_delete_clicked)
-        tokens_layout.addWidget(bulb_btn)
-        tokens_layout.addWidget(self.token_selector, stretch=1)
-        tokens_layout.addWidget(delete_btn)
-        tokens_frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        tokens_frame.setMinimumWidth(256) 
+        # Human input widget for action tokens
+        tokens_frame = HumanInputWidget(self.env_ref)
+        tokens_frame.tokens_signal.connect(self.handle_received_tokens)  # Connect signal to handle received tokens
 
         # Left main layout (map, slider, tokens)
         left_layout = QVBoxLayout()
@@ -126,9 +111,9 @@ class MainWindow(QMainWindow):
     def on_bulb_clicked(self):
         print("Bulb button clicked")
 
-    def on_delete_clicked(self): # TODO: move into token class with other functions
-        self.token_selector.clear_tokens()
-        print("Delete button clicked")
+    def handle_received_tokens(self, tokens: dict):
+        """Handle received action tokens from the HumanInputWidget."""
+        print(f"Received tokens: {tokens}")
 
 
 if __name__ == "__main__":
