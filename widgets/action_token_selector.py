@@ -94,8 +94,10 @@ class ActionTokenSelector(QWidget):
         
         token_data = {0: action_token}
         for i in range(self.dynamic_layout.count()):
-            widget = self.dynamic_layout.itemAt(i).widget()
-            if isinstance(widget, QComboBox):
-                token_data[i+1] = widget.currentText()
+            container = self.dynamic_layout.itemAt(i).widget()
+            if container:
+                dropdown = container.findChild(QComboBox)
+                if dropdown:
+                    token_data[i+1] = dropdown.currentText()
         
         return token_data
