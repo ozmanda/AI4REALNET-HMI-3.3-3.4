@@ -10,7 +10,7 @@ from widgets.disturbances import DisturbanceWidget
 from widgets.evaluation import EvaluationWidget
 from widgets.human_input import HumanInputWidget
 
-from utils.env_reference import EnvReference
+from utils.env_reference import FlatlandEnvReference
 
 from flatland.envs.rail_env import RailEnv 
 from utils.env_small import small_flatland_env 
@@ -23,7 +23,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("AI4REALNET Co-Learning HMI")
         self.setMinimumSize(1000, 600)
-        self.env_ref: EnvReference = EnvReference()
+        self.env_ref: FlatlandEnvReference = FlatlandEnvReference()
         self.env_ref.env = env
         self.init_ui()
 
@@ -107,15 +107,19 @@ class MainWindow(QMainWindow):
     def on_play_clicked(self): # TODO: move to class with slider and FlatlandWidget
         print("Play button clicked")
 
+
     def on_slider_changed(self, value): # TODO: move to class with slider and FlatlandWidget
         print(f"Slider changed: {value}")
+
 
     def on_bulb_clicked(self):
         print("Bulb button clicked")
 
+
     def handle_received_tokens(self, tokens: dict):
         """Handle received action tokens from the HumanInputWidget."""
         print(f"Received tokens: {tokens}")
+
 
     def handle_evaluation_request(self):
         """Handle evaluation request from the user."""
@@ -124,6 +128,7 @@ class MainWindow(QMainWindow):
             'Metrics': self.env_ref.get_metrics()
             }
         self.evaluation_widget.display_results(evaluation_results)
+
 
     def handle_solution_generation_request(self, disturbance_ID: str):
         """Handle solution generation request for a disturbance."""

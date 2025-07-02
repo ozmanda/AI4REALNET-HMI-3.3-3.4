@@ -1,13 +1,13 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QTextEdit, QSizePolicy, QHBoxLayout, QFrame, QStyle, QDialog, QComboBox, QDialogButtonBox
 from PyQt6.QtCore import Qt, pyqtSignal
 from widgets.action_token_selector import ActionTokenSelector
-from utils.env_reference import EnvReference
+from utils.env_reference import FlatlandEnvReference
 
 class HumanInputWidget(QFrame):
     # Signals
     tokens_signal = pyqtSignal(dict)
 
-    def __init__(self, env_ref: EnvReference, parent=None):
+    def __init__(self, env_ref: FlatlandEnvReference, parent=None):
         super().__init__(parent)
         self.setFrameShape(QFrame.Shape.Box)
         tokens_layout = QHBoxLayout(self)

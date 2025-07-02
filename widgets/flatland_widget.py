@@ -4,16 +4,16 @@ from PyQt6.QtWidgets import QLabel, QWidget, QVBoxLayout, QSizePolicy, QPushButt
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtCore import Qt
 from flatland.utils.rendertools import RenderTool
-from utils.env_reference import EnvReference
+from utils.env_reference import FlatlandEnvReference
 from utils.flatland_railway_extension.RailroadSwitchCluster import RailroadSwitchCluster
 from utils.flatland_railway_extension.RailroadSwitchAnalyser import RailroadSwitchAnalyser
 from matplotlib import pyplot as plt
 from PIL import Image
 
 class FlatlandWidget(QWidget):
-    def __init__(self, env_ref: EnvReference, parent=None):
+    def __init__(self, env_ref: FlatlandEnvReference, parent=None):
         super().__init__(parent)
-        self.env_ref: EnvReference = env_ref
+        self.env_ref: FlatlandEnvReference = env_ref
         self.label = QLabel(self)
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 

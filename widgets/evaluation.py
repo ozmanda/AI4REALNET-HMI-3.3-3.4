@@ -3,7 +3,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 
 from flatland.envs.rail_env import RailEnv
 
-from utils.env_reference import EnvReference
+from utils.env_reference import FlatlandEnvReference
 
 
 class EvaluationWidget(QFrame):
@@ -96,9 +96,9 @@ class EvaluationWidget(QFrame):
             if child.widget():
                 child.widget().deleteLater()
 
-    def set_environment(self, env_ref: EnvReference):
+    def set_environment(self, env_ref: FlatlandEnvReference):
         """Set the environment for the evaluation widget."""
-        self.env: EnvReference = env_ref
+        self.env: FlatlandEnvReference = env_ref
 
 
     def _on_evaluation_refresh_clicked(self):
