@@ -15,17 +15,19 @@ from utils.env_reference import FlatlandEnvReference
 from flatland.envs.rail_env import RailEnv 
 from utils.env_small import small_flatland_env 
 from test_data.test_disturbances import small_test_disturbances
+from utils.controller_reference import ControllerRef
 
 
 # HMI Main Window
 class MainWindow(QMainWindow):
-    def __init__(self, env: RailEnv):
+    def __init__(self, env: RailEnv, agent: ControllerRef):
         super().__init__()
         self.setWindowTitle("AI4REALNET Co-Learning HMI")
         self.setMinimumSize(1000, 600)
         self.env_ref: FlatlandEnvReference = FlatlandEnvReference()
         self.env_ref.env = env
         self.init_ui()
+        self.agent_ref = agent
 
     def init_ui(self):
         # Top label: Sector Name, Time, etc.

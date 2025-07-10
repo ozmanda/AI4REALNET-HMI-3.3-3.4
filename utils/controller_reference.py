@@ -2,6 +2,8 @@ from typing import List, Dict, Union
 from torch import Tensor
 from numpy.random import randint
 
+
+
 class ControllerRef():
     def __init__(self, controllertype: str = None, modelname: str = None):
         self.controllertype: str = controllertype
@@ -41,3 +43,9 @@ class ControllerRef():
             if states[i] is not None:
                 actions[i] = randint(0, 5)  # Random action between 0 and 4
         return actions
+    
+
+    def handle_token_input(self, tokens: dict):
+        """Handle token input from the user."""
+        print(f"Controller handling token input: {tokens}")
+        
