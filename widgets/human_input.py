@@ -16,7 +16,6 @@ class HumanInputWidget(QFrame):
         apply_btn = QPushButton()
         apply_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton))
         apply_btn.setFixedSize(32, 32)
-        apply_btn.clicked.connect(self._apply_button_clicked) # TODO: move with token widget class, rename & connect to environment.
         apply_btn.clicked.connect(lambda: self.send_signal_with_tokens())
         self.token_selector = ActionTokenSelector(env_ref.env.get_agent_handles())
         delete_btn = QPushButton()
@@ -33,9 +32,6 @@ class HumanInputWidget(QFrame):
     def on_delete_clicked(self):
         self.token_selector.clear_tokens()
 
-
-    def _apply_button_clicked(self):
-        """Apply button callback."""
         
     def send_signal_with_tokens(self):
         """Send a signal with the values of the ActionTokenSelector."""
