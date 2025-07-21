@@ -41,7 +41,7 @@ class FlatlandWidget(QWidget):
         self.renderer.render_env(show=False, show_observations=False)
         img = self.renderer.get_image()
         # Save the rendered image to "flatland_env.png"
-        Image.fromarray(img).save("flatland_env.png")
+        Image.fromarray(img).save("utils/imgs/flatland_env.png")
         self._last_render['env'] = img
         self._last_render['track'] = track_image
         self._last_render['switch'] = switch_image
@@ -79,7 +79,7 @@ class FlatlandWidget(QWidget):
         pixmap = QPixmap.fromImage(qimg)
         self.label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.label.setPixmap(pixmap.scaled(
-            self.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+            self.label.width(), self.label.height(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
         ))
 
 

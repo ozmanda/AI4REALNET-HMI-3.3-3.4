@@ -71,7 +71,7 @@ class FlatlandEnvReference(EnvReference):
             self.switch_grid: np.ndarray = np.zeros((self.env.height, self.env.width), dtype=np.int8)
 
             self.switch_analyser = RailroadSwitchAnalyser(self.env)
-            self.switch_cluster = RailroadSwitchCluster(self.switch_analyser)
+            self.switch_cluster = RailroadSwitchCluster(self.switch_analyser, multi_directional=False)
 
             for id, positions in self.switch_cluster.connecting_edge_clusters.items():
                 for pos in positions:
@@ -85,8 +85,9 @@ class FlatlandEnvReference(EnvReference):
     def _init_network_graph(self) -> None:
         """ Initialize the network graph for the Flatland environment. """
         if self.env:
-            graphbuilder = FlatlandGraphBuilder(self.switch_analyser, activate_simplified=True)
+            graphbuilder = FlatlandGraphBuilder(self.switch_analyser, activate_multi_directional=False)
             self.network_graph = graphbuilder.get_graph()
+            # graphbuilder.render() #! Uncomment to visualize the graph
 
     def get_agent_handles(self) -> List[int | str]:
         """ Get the agent handles from the Flatland environment. """

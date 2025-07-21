@@ -13,7 +13,7 @@ from widgets.human_input import HumanInputWidget
 from utils.env_reference import FlatlandEnvReference
 
 from flatland.envs.rail_env import RailEnv 
-from utils.env_small import small_flatland_env 
+from utils.environments.env_small import small_flatland_env 
 from test_data.test_disturbances import small_test_disturbances
 from utils.controller_reference import ControllerRef
 
@@ -25,7 +25,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("AI4REALNET Co-Learning HMI")
         self.setMinimumSize(1000, 600)
         self.env_ref: FlatlandEnvReference = FlatlandEnvReference()
-        self.env_ref.env = env
+        self.env_ref.init_environment(env)
         self.init_ui()
         self.agent_ref = agent
 
@@ -146,6 +146,6 @@ if __name__ == "__main__":
     # Initialize Flatland environment
     env = small_flatland_env()
     app = QApplication(sys.argv)
-    window = MainWindow(env)
+    window = MainWindow(env, None)
     window.show()
     sys.exit(app.exec())

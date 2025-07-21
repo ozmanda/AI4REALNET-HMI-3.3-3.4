@@ -19,8 +19,9 @@ ClusterCellMembers = collections.namedtuple('ClusterInformation',
 
 
 class RailroadSwitchCluster:
-    def __init__(self, railroad_switch_analyser: RailroadSwitchAnalyser):
+    def __init__(self, railroad_switch_analyser: RailroadSwitchAnalyser, multi_directional: bool = False):
         self.railroad_switch_analyser: RailroadSwitchAnalyser = railroad_switch_analyser
+        self.multi_directional = multi_directional
         self.env = self.railroad_switch_analyser.get_rail_env()
         self.railroad_switch_clusters = {}
         self.connecting_edge_clusters = {}
@@ -30,8 +31,8 @@ class RailroadSwitchCluster:
     def _cluster_connecting_edge(self):
         self.connecting_edge_cluster_grid = np.zeros((self.env.height, self.env.width))
 
-        flatland_graph_builder: FlatlandGraphBuilder = FlatlandGraphBuilder(railroad_switch_analyser=self.railroad_switch_analyser)
-        flatland_graph_builder.activate_simplified()
+        flatland_graph_builder: FlatlandGraphBuilder = FlatlandGraphBuilder(railroad_switch_analyser=self.railroad_switch_analyser, activate_multi_directional=self.multi_directional)
+        # flatland_graph_builder.activate_simplified()
         edges = flatland_graph_builder.get_edges()
         cluster_id = 1
         for idx_edge, edge in enumerate(edges):
