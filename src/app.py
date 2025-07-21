@@ -14,7 +14,7 @@ from utils.env_reference import FlatlandEnvReference
 
 from flatland.envs.rail_env import RailEnv 
 from utils.environments.env_small import small_flatland_env 
-from test_data.test_disturbances import small_test_disturbances
+from utils.environments.test_disturbances import small_test_disturbances
 from utils.controller_reference import ControllerRef
 
 
