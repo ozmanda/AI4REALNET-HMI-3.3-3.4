@@ -32,12 +32,14 @@ class TestMultiDiGraphBuilder(unittest.TestCase):
         """ Test the graph generation for multiple scenarios. """
         for scenario in scenarios:
             with self.subTest(scenario=scenario):
-                env = load_scenario_from_json(scenario)
+                dir = os.path.join(os.getcwd(), 'src', 'utils', 'environments', scenario + '.json')
+                env = load_scenario_from_json(dir)
                 env.reset()
                 graph_builder = MultiDiGraphBuilder(env)
                 self.assertIsNotNone(graph_builder.graph, f"Graph for {scenario} should be generated successfully.")
                 self.assertGreater(len(graph_builder.graph.nodes), 0, f"Graph for {scenario} should contain nodes.")
                 self.assertGreater(len(graph_builder.graph.edges), 0, f"Graph for {scenario} should contain edges.")
+                graph_builder.render(os.path.join("test", "renders", f"graphbuilder_{scenario}_graph.png"))
 
     def test_complex_graph_generation(self):
         """ Test the graph generation for a complex scenario. """
