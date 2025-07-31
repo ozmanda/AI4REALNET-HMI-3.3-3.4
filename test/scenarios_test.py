@@ -55,5 +55,5 @@ class TestScenarioLoader(unittest.TestCase):
                     plt.imshow(img)
                     plt.title(f"Rendered scenario: {scenario}")
                     plt.axis('off')
-                    plt.savefig(os.path.join("test", "renders", f"scenario_{idx}.png"))
+                    plt.savefig(os.path.join("test", "renders", f"scenario_{idx}.png"), bbox_inches='tight')
                     plt.close()  # Close the plot to free memory
