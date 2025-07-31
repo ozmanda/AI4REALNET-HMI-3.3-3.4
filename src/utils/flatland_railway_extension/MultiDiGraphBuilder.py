@@ -11,9 +11,9 @@ from flatland.envs.rail_env_action import RailEnvActions
 from flatland.core.grid.grid4_utils import get_new_position
 from flatland.envs.fast_methods import fast_position_equal, fast_argmax, fast_count_nonzero
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from utils.flatland_railway_extension.RailroadSwitchAnalyser import RailroadSwitchAnalyser
-from utils.environments.env_small import small_flatland_env
+# sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from src.utils.flatland_railway_extension.RailroadSwitchAnalyser import RailroadSwitchAnalyser
+from src.utils.environments.env_small import small_flatland_env
 from flatland.envs.rail_env_action import RailEnvActions
 
 n_directions: int = 4  # range [1:infty)
@@ -158,7 +158,7 @@ class MultiDiGraphBuilder:
         """Clear the graph."""
         self.graph.clear()
 
-    def render(self):
+    def render(self, savepath: str = None):
         """Render the graph showing nodes and edges."""
         positions = nx.get_node_attributes(self.graph, 'position')
         dead_end_status = nx.get_node_attributes(self.graph, 'dead_end')
@@ -171,6 +171,11 @@ class MultiDiGraphBuilder:
                 node_color=node_colours,
 
                 )
+        plt.axis('off')
+        if savepath:
+            plt.savefig(savepath, bbox_inches='tight')
+        plt.show()
+        plt.close()
         # nx.draw(
         #     self.graph, pos=positions, edge_color='black', width=1, linewidths=1,
         #     node_size=200, node_color='lightgray', alpha=1.0, font_size=8,
@@ -182,10 +187,6 @@ class MultiDiGraphBuilder:
         #     edge_labels={(u, v): f"{d['key']}" for u, v, d in self.graph.edges(data=True)},
         #     font_color='red', font_size=8
         # )
-        plt.axis('off')
-        plt.savefig(os.path.join("test", "renders", "graph_render.png"), bbox_inches='tight')
-        plt.show()
-        plt.close()
 
 
 if __name__ == "__main__":

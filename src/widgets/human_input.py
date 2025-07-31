@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QTextEdit, QSizePolicy, QHBoxLayout, QFrame, QStyle, QDialog, QComboBox, QDialogButtonBox
 from PyQt6.QtCore import Qt, pyqtSignal
-from widgets.action_token_selector import ActionTokenSelector
-from utils.env_reference import FlatlandEnvReference
+from src.widgets.action_token_selector import ActionTokenSelector
+from src.utils.env_reference import FlatlandEnvReference
 
 class HumanInputWidget(QFrame):
     # Signals

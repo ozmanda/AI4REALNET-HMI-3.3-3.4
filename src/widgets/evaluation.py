@@ -3,7 +3,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 
 from flatland.envs.rail_env import RailEnv
 
-from utils.env_reference import FlatlandEnvReference
+from src.utils.env_reference import FlatlandEnvReference
 
 
 class EvaluationWidget(QFrame):

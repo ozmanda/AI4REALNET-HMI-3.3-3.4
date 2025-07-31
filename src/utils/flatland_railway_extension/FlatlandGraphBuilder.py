@@ -12,8 +12,8 @@ from flatland.envs.rail_env import RailEnv
 from matplotlib import pyplot as plt
 from networkx.classes.reportviews import OutEdgeView
 
-from utils.flatland_railway_extension.RailroadSwitchAnalyser import RailroadSwitchAnalyser
-from utils.flatland_railway_extension.environments.InfrastructureData import InfrastructureData
+from src.utils.flatland_railway_extension.RailroadSwitchAnalyser import RailroadSwitchAnalyser
+from src.utils.flatland_railway_extension.environments.InfrastructureData import InfrastructureData
 
 
 class FlatlandGraphBuilder:

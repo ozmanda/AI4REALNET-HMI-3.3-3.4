@@ -4,9 +4,9 @@ from PyQt6.QtWidgets import QLabel, QWidget, QVBoxLayout, QSizePolicy, QPushButt
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtCore import Qt
 from flatland.utils.rendertools import RenderTool
-from utils.env_reference import FlatlandEnvReference
-from utils.flatland_railway_extension.RailroadSwitchCluster import RailroadSwitchCluster
-from utils.flatland_railway_extension.RailroadSwitchAnalyser import RailroadSwitchAnalyser
+from src.utils.env_reference import FlatlandEnvReference
+from src.utils.flatland_railway_extension.RailroadSwitchCluster import RailroadSwitchCluster
+from src.utils.flatland_railway_extension.RailroadSwitchAnalyser import RailroadSwitchAnalyser
 from matplotlib import pyplot as plt
 from PIL import Image
 
