@@ -3,19 +3,19 @@ from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QFrame, QSizePolicy, QStyle
 )
-from widgets import evaluation
-from widgets.flatland_widget import FlatlandWidget
-from widgets.action_token_selector import ActionTokenSelector
-from widgets.disturbances import DisturbanceWidget
-from widgets.evaluation import EvaluationWidget
-from widgets.human_input import HumanInputWidget
+from src.widgets import evaluation
+from src.widgets.flatland_widget import FlatlandWidget
+from src.widgets.action_token_selector import ActionTokenSelector
+from src.widgets.disturbances import DisturbanceWidget
+from src.widgets.evaluation import EvaluationWidget
+from src.widgets.human_input import HumanInputWidget
 
-from utils.env_reference import FlatlandEnvReference
+from src.utils.env_reference import FlatlandEnvReference
 
 from flatland.envs.rail_env import RailEnv 
-from utils.environments.env_small import small_flatland_env 
-from utils.environments.test_disturbances import small_test_disturbances
-from utils.controller_reference import ControllerRef
+from src.utils.environments.env_small import small_flatland_env 
+from src.utils.environments.test_disturbances import small_test_disturbances
+from src.utils.controller_reference import ControllerRef
 
 
 # HMI Main Window
