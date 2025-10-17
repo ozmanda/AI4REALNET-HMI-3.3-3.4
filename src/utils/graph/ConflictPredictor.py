@@ -24,22 +24,25 @@ class ConflictPredictor():
         self.agent_index: Dict[int, int] = {}
         self.agent_conflict_matrix: List[List[int]] = []
         self._latest_conflict_detail: Optional[Dict[str, Any]] = None
+        self.agent_path_selection: Dict[int, int] = {}
+        self._precompute_station_paths()
         self._init_conflict_predictor()
+        self._assign_agent_paths()
 
     def _init_conflict_predictor(self):
         self.agent_schedules.clear()
         self.detected_conflicts = []
         self.agent_conflict_matrix = []
         self._latest_conflict_detail = None
+        self.agent_paths = {}
         self._place_agents()
         self._match_edges()
-        self._get_station_paths(preserve_existing=True)
 
     def update_agents(self, agents: List[EnvAgent]): 
         """ Update agent positions and re-calculate their origin nodes and rail IDs. """
         self._place_agents()
         self._match_edges()
-        self._get_station_paths(preserve_existing=True)
+        self._assign_agent_paths()
 
     def _place_agents(self):
         for agent_handle in self.env.get_agent_handles():
@@ -93,45 +96,90 @@ class ConflictPredictor():
         raise ValueError(f"Unable to match agent {agent_handle} position {position} to a graph node or edge.")
 
 
-    def _get_station_paths(self, preserve_existing: bool = True) -> None:
-        """
-        Calculate all possible paths through a graph between two stations
-        """
+    def _precompute_station_paths(self) -> None:
+        """Compute k-shortest paths between all station pairs independent of agents."""
         self.graph.station_path_data()
-        previous_selection: Dict[int, int] = {}
-        if preserve_existing:
-            previous_selection = {
-                handle: info.get('selected_path_index', 0)
-                for handle, info in self.agent_paths.items()
-            }
-        self.agent_paths = {}
+        self.station_path_lookup: Dict[Tuple[Tuple[int, int], Tuple[int, int]], List[str]] = getattr(self.graph, "path_lookup", {})
+        self.station_paths: Dict[str, List[Tuple[int, int, int]]] = getattr(self.graph, "paths", {})
 
+    def _assign_agent_paths(self) -> None:
+        """Assign default paths to the agents based on the precomputed station paths."""
+        self.agent_paths = {}
         for agent_handle in self.env.get_agent_handles():
-            print(f'Processing agent {agent_handle}/{self.env.get_num_agents}...')
             agent = self.env.agents[agent_handle]
-            if not getattr(agent, 'waypoints', None):
+            station_pair = self._determine_agent_stations(agent)
+            if not station_pair:
                 continue
 
-            start_position = self._extract_waypoint_position(agent.waypoints[0])
-            target_position = self._extract_waypoint_position(agent.waypoints[-1])
-
-            path_candidates = self.graph.path_lookup.get((start_position, target_position))
+            start_node, target_node = station_pair
+            path_candidates = self.station_path_lookup.get((start_node, target_node))
             if not path_candidates:
                 continue
 
-            selected_index = previous_selection.get(agent_handle, 0)
-            if selected_index >= len(path_candidates) or selected_index < 0:
+            selected_index = self.agent_path_selection.get(agent_handle, 0)
+            if selected_index < 0 or selected_index >= len(path_candidates):
                 selected_index = 0
+
             chosen_path_id = path_candidates[selected_index]
+            edges = self.station_paths.get(chosen_path_id)
+            if edges is None:
+                continue
             self.agent_paths[agent_handle] = {
-                'path_id': chosen_path_id,
-                'available_paths': path_candidates,
-                'selected_path_index': selected_index,
-                'edges': self.graph.paths[chosen_path_id],
-                'start': start_position,
-                'target': target_position,
+                "path_id": chosen_path_id,
+                "available_paths": path_candidates,
+                "selected_path_index": selected_index,
+                "edges": edges,
+                "start": start_node,
+                "target": target_node,
             }
             self.agent_schedules.pop(agent_handle, None)
+
+    def _determine_agent_stations(self, agent: EnvAgent) -> Optional[Tuple[Tuple[int, int], Tuple[int, int]]]:
+        """Determine the start and target station nodes for an agent."""
+        start_position = None
+        target_position = None
+
+        if getattr(agent, "waypoints", None):
+            if agent.waypoints:
+                start_position = self._extract_waypoint_position(agent.waypoints[0])
+                target_position = self._extract_waypoint_position(agent.waypoints[-1])
+
+        if start_position is None:
+            start_position = agent.initial_position or agent.position
+        if target_position is None:
+            target_position = getattr(agent, "target", None)
+
+        start_node = self._resolve_station_node(start_position)
+        target_node = self._resolve_station_node(target_position)
+
+        if start_node is None or target_node is None:
+            return None
+        return start_node, target_node
+
+    def _resolve_station_node(self, position: Optional[Union[Tuple[int, int], List[int]]]) -> Optional[Tuple[int, int]]:
+        if position is None:
+            return None
+        if isinstance(position, list):
+            position = tuple(position)
+        if isinstance(position, tuple):
+            if position in getattr(self.graph, "station_lookup", {}):
+                return position
+            # Fallback: if agent is currently on a graph node that maps to a station
+            station_id = getattr(self.env, "stations", None)
+            if station_id:
+                for station in station_id:
+                    coord = (station["r"], station["c"])
+                    if coord == position:
+                        return coord
+        return None
+
+    def _get_available_paths_for_agent(self, agent_handle: int) -> List[str]:
+        agent = self.env.agents[agent_handle]
+        station_pair = self._determine_agent_stations(agent)
+        if not station_pair:
+            return []
+        start_node, target_node = station_pair
+        return self.station_path_lookup.get((start_node, target_node), [])
 
 
     def cell_time_window(self, cell: Tuple[int, int], train_speed: float) -> Tuple[float, float]:
@@ -217,6 +265,7 @@ class ConflictPredictor():
         Calculate the conflict matrix for the paths of all station pairs
         """
         self._init_conflict_predictor()
+        self._assign_agent_paths()
         agent_handles = list(self.env.get_agent_handles())
         agent_count = len(agent_handles)
         self.agent_index = {handle: idx for idx, handle in enumerate(agent_handles)}
@@ -266,26 +315,17 @@ class ConflictPredictor():
         """
         Override the selected path for a given agent by choosing an alternative from the available paths.
         """
-        if not self.agent_paths:
-            self._get_station_paths(preserve_existing=True)
-
-        path_info = self.agent_paths.get(agent_handle)
-        if not path_info:
-            raise ValueError(f"No precomputed paths available for agent {agent_handle}.")
-
-        available_paths = path_info.get('available_paths', [])
+        available_paths = self._get_available_paths_for_agent(agent_handle)
         if not available_paths:
             raise ValueError(f"Agent {agent_handle} has no available paths to choose from.")
 
         if path_index < 0 or path_index >= len(available_paths):
             raise IndexError(f"Path index {path_index} is out of range for agent {agent_handle}.")
 
-        new_path_id = available_paths[path_index]
-        path_info.update({
-            'path_id': new_path_id,
-            'selected_path_index': path_index,
-            'edges': self.graph.paths[new_path_id],
-        })
+        self.agent_path_selection[agent_handle] = path_index
+        self._assign_agent_paths()
+        if agent_handle not in self.agent_paths:
+            raise ValueError(f"Failed to assign selected path for agent {agent_handle}.")
         self.agent_schedules.pop(agent_handle, None)
 
     def _extract_waypoint_position(self, waypoint_entry: Any) -> Tuple[int, int]:
