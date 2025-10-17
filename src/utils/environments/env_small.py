@@ -47,8 +47,8 @@ def small_flatland_env(observation: str = 'tree', max_tree_depth: int = 2, malfu
     else:
         malfunction_generator = None
     
-    return RailEnv(width=35,
-                   height=28,
+    return RailEnv(width=40,
+                   height=40,
                    number_of_agents=8,
                    rail_generator=rail_generator,
                    line_generator=line_generator,
