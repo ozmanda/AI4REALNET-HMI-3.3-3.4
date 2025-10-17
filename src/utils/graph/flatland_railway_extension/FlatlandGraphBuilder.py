@@ -8,12 +8,11 @@ import numpy as np
 from flatland.core.grid.grid4_utils import get_new_position
 from flatland.envs.fast_methods import fast_position_equal, fast_argmax, fast_count_nonzero
 from flatland.envs.rail_env_action import RailEnvActions
-from flatland.envs.rail_env import RailEnv
 from matplotlib import pyplot as plt
 from networkx.classes.reportviews import OutEdgeView
 
-from src.utils.flatland_railway_extension.RailroadSwitchAnalyser import RailroadSwitchAnalyser
-from src.utils.flatland_railway_extension.environments.InfrastructureData import InfrastructureData
+from .RailroadSwitchAnalyser import RailroadSwitchAnalyser
+from .InfrastructureData import InfrastructureData
 
 
 class FlatlandGraphBuilder:
@@ -21,20 +20,14 @@ class FlatlandGraphBuilder:
                  railroad_switch_analyser: RailroadSwitchAnalyser,
                  infrastructure_data: Union[InfrastructureData, None] = None,
                  activate_simplified: bool = False,
-                 keep_switch_neighbors_at_simplification: bool = True,
-                 activate_multi_directional: bool = False):
+                 keep_switch_neighbors_at_simplification: bool = True):
         self.railroad_switch_analyser = railroad_switch_analyser
-        self.env: RailEnv = self.railroad_switch_analyser.get_rail_env()
-
-        self._graph: Union[Union[nx.MultiDiGraph, nx.DiGraph], None] = None
-
+        self._graph: Union[nx.DiGraph, None] = None
         self._nodes: Union[Dict[str, Tuple[int, int, float]], None] = None
         self.set_infrastructure_data(infrastructure_data)
         self.keep_switch_neighbors_at_simplification = keep_switch_neighbors_at_simplification
         if activate_simplified:
             self.activate_simplified()
-        elif activate_multi_directional:
-            self.activate_simplified(multi_directional=True)
         else:
             self.activate_full_graph()
 
@@ -44,16 +37,10 @@ class FlatlandGraphBuilder:
     def activate_full_graph(self):
         self._graph, self._nodes, self._from_vertex_edge_map = self._create_full_graph()
 
-    def activate_simplified(self, multi_directional: bool = False):
-        if multi_directional:
-            self._graph, self._nodes, self._from_vertex_edge_map = self._create_full_multi_di_graph()
-            self._graph, self._nodes, self._from_vertex_edge_map = self._create_simplified_graph(multi_direction=True)
-        else:
-            self._graph, self._nodes, self._from_vertex_edge_map = self._create_full_graph()
-            self._graph, self._nodes, self._from_vertex_edge_map = self._create_simplified_graph()
+    def activate_simplified(self):
+        self._graph, self._nodes, self._from_vertex_edge_map = self._create_simplified_graph()
 
-
-    def get_graph(self) -> Union[Union[nx.DiGraph, nx.MultiDiGraph], None]:
+    def get_graph(self) -> Union[nx.DiGraph, None]:
         return self._graph
 
     def get_nodes(self) -> Union[Dict[str, Tuple[int, int, float]], None]:
@@ -74,64 +61,17 @@ class FlatlandGraphBuilder:
             edge_vel = self._infrastructure_data.get_velocity(pos)
             return edge_len / edge_vel
         return 1.0
-    
-    def _create_full_multi_di_graph(self): 
-        """ Create graph with multi-directional edges. """
-        graph = nx.MultiDiGraph()
-        # env = self.railroad_switch_analyser.get_rail_env()
-        nodes = {}
-        from_vertex_edge_map = {}
-        for h in range(self.env.height):
-            for w in range(self.env.width):
-                from_position = (h, w)
-                for from_direction in range(4):
-                    possible_transitions = self.env.rail.get_transitions(*from_position, from_direction)
-                    nbr_possible_transitions = fast_count_nonzero(possible_transitions)
-                    if nbr_possible_transitions > 0:
-                        vertex_name = f'{from_position[0]}_{from_position[1]}'
-                        nodes[vertex_name] = from_position
-                        graph.add_node(vertex_name, pos=from_position)
-                        actions = {}
-                        for to_direction in range(4):
-                            actions.update({to_direction: RailEnvActions.MOVE_FORWARD})
-                        if nbr_possible_transitions > 1:
-                            action = 0
-                            for to_direction in [(from_direction + i) % 4 for i in range(-1, 2)]:
-                                if possible_transitions[to_direction]:
-                                    actions.update({to_direction: list(RailEnvActions)[action + 1]})
-                                action += 1
 
-                        if from_position is None:
-                            print('test')
-                        for to_direction in range(4):
-                            if possible_transitions[to_direction] == 1:
-                                new_position = get_new_position(from_position, to_direction)
-                                to_vertex_name = f'{new_position[0]}_{new_position[1]}'
-                                graph.add_edge(vertex_name, 
-                                                to_vertex_name,
-                                                length=self.estimate_edge_len(from_position),
-                                                from_nodes=[vertex_name],
-                                                resources=[from_position],
-                                                action=[actions.get(to_direction)],
-                                                resource_id=f'{from_position[0]}_{from_position[1]}'
-                                                )
-                                nodes.update({vertex_name: from_position})
-                                nodes.update({to_vertex_name: new_position})
-                                from_vertex_edge_map[vertex_name] = (vertex_name, to_vertex_name)
-
-        return graph, nodes, from_vertex_edge_map
-    
-
-    def _create_full_graph(self) -> Tuple[nx.DiGraph, Dict, Dict]:
+    def _create_full_graph(self):
         graph = nx.DiGraph()
-        # env = self.railroad_switch_analyser.get_rail_env()
+        env = self.railroad_switch_analyser.get_rail_env()
         nodes = {}
         from_vertex_edge_map = {}
-        for h in range(self.env.height):
-            for w in range(self.env.width):
+        for h in range(env.height):
+            for w in range(env.width):
                 from_position = (h, w)
                 for from_direction in range(4):
-                    possible_transitions = self.env.rail.get_transitions(*from_position, from_direction)
+                    possible_transitions = env.rail.get_transitions((from_position, from_direction))
                     nbr_possible_transitions = fast_count_nonzero(possible_transitions)
                     if nbr_possible_transitions > 0:
                         actions = {}
@@ -139,7 +79,6 @@ class FlatlandGraphBuilder:
                             actions.update({to_direction: RailEnvActions.MOVE_FORWARD})
                         if nbr_possible_transitions > 1:
                             action = 0
-                            # for every direction that isn't straight ahead, then rotate through the action directions
                             for to_direction in [(from_direction + i) % 4 for i in range(-1, 2)]:
                                 if possible_transitions[to_direction]:
                                     actions.update({to_direction: list(RailEnvActions)[action + 1]})
@@ -164,7 +103,8 @@ class FlatlandGraphBuilder:
 
         return graph, nodes, from_vertex_edge_map
 
-    def _create_simplified_graph(self, multi_direction: bool = False) -> Tuple[nx.DiGraph, Dict, Dict]:
+    def _create_simplified_graph(self):
+        self._graph, self._nodes, self._from_vertex_edge_map = self._create_full_graph()
         graph, nodes, from_vertex_edge_map = self._graph, self._nodes, self._from_vertex_edge_map
         # loop as long as the graph changes (gets updated)
         graph_updated = True
@@ -186,11 +126,7 @@ class FlatlandGraphBuilder:
                 #   | Node |------------------------------->| Node |
                 # / `------`                                `------` \
                 #
-
-                # For the multi-directional graph, the inner nodes are only removed if they have exactly two in- and out-going edges.
-                min_connections = 2 if multi_direction else 1
-
-                if (graph.in_degree(node) == min_connections and graph.out_degree(node) == min_connections):
+                if (graph.in_degree(node) == 1 and graph.out_degree(node) == 1):
                     in_dat = None
                     out_dat = None
                     in_vert = None
@@ -207,7 +143,7 @@ class FlatlandGraphBuilder:
                         out_vert = outgoing_v if node == outgoing_u else outgoing_u
 
                     #
-                    # check neighbour nodes (otherwise the methods removes to many nodes)
+                    # check neighbour nodes (otherwise the methods removes to much nodes)
                     #
                     node_pos, node_dir = self.get_node_pos_dir(node)
                     if self.railroad_switch_analyser.is_diamond_crossing(node_pos):
@@ -218,7 +154,7 @@ class FlatlandGraphBuilder:
                         if self.railroad_switch_analyser.is_switch_neighbor(node_pos):
                             continue
 
-                    if graph.out_degree(in_vert) == min_connections and graph.in_degree(out_vert) == min_connections:
+                    if graph.out_degree(in_vert) == 1 and graph.in_degree(out_vert) == 1:
                         # add new edge
                         graph.add_edge(in_vert, out_vert)
 
@@ -273,17 +209,13 @@ class FlatlandGraphBuilder:
         for edge in graph.edges:
             edge_data = graph.get_edge_data(edge[0], edge[1])
             resources = edge_data.get('resources')
-            try:
-                len(resources)
-            except TypeError:
-                pass
             if len(resources) > 1:
                 pos, direction = self.get_coordinate_direction_from_node_id(edge[0])
                 to_pos, _ = self.get_coordinate_direction_from_node_id(edge[1])
                 res = [pos]
                 env = self.railroad_switch_analyser.get_rail_env()
                 while not fast_position_equal(pos, to_pos):
-                    possible_transitions = env.rail.get_transitions(*pos, direction)
+                    possible_transitions = env.rail.get_transitions((pos, direction))
                     direction = fast_argmax(possible_transitions)
                     pos = get_new_position(pos, direction)
                     if not fast_position_equal(pos, to_pos):
@@ -304,10 +236,7 @@ class FlatlandGraphBuilder:
     def get_node_pos_dir(self, node_str: str):
         pos_xy_dir = self.get_nodes().get(node_str)
         pos = pos_xy_dir[:2]
-        try:
-            dir = pos_xy_dir[2]
-        except IndexError:
-            dir = None
+        dir = pos_xy_dir[2]
         return pos, dir
 
     def render(self, render_direction_layer=True):

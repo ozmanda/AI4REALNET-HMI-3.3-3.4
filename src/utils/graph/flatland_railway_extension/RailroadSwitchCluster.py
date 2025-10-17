@@ -6,7 +6,7 @@ import numpy as np
 from flatland.core.grid.grid4_utils import get_new_position
 from flatland.envs.fast_methods import fast_count_nonzero, fast_argmax
 from matplotlib import pyplot as plt
-from PIL import Image
+
 from .FlatlandGraphBuilder import FlatlandGraphBuilder
 from .RailroadSwitchAnalyser import RailroadSwitchAnalyser
 
@@ -19,9 +19,8 @@ ClusterCellMembers = collections.namedtuple('ClusterInformation',
 
 
 class RailroadSwitchCluster:
-    def __init__(self, railroad_switch_analyser: RailroadSwitchAnalyser, multi_directional: bool = False):
+    def __init__(self, railroad_switch_analyser: RailroadSwitchAnalyser):
         self.railroad_switch_analyser: RailroadSwitchAnalyser = railroad_switch_analyser
-        self.multi_directional = multi_directional
         self.env = self.railroad_switch_analyser.get_rail_env()
         self.railroad_switch_clusters = {}
         self.connecting_edge_clusters = {}
@@ -31,8 +30,8 @@ class RailroadSwitchCluster:
     def _cluster_connecting_edge(self):
         self.connecting_edge_cluster_grid = np.zeros((self.env.height, self.env.width))
 
-        flatland_graph_builder: FlatlandGraphBuilder = FlatlandGraphBuilder(railroad_switch_analyser=self.railroad_switch_analyser, activate_multi_directional=self.multi_directional)
-        # flatland_graph_builder.activate_simplified()
+        flatland_graph_builder: FlatlandGraphBuilder = FlatlandGraphBuilder(railroad_switch_analyser=self.railroad_switch_analyser)
+        flatland_graph_builder.activate_simplified()
         edges = flatland_graph_builder.get_edges()
         cluster_id = 1
         for idx_edge, edge in enumerate(edges):
@@ -101,8 +100,8 @@ class RailroadSwitchCluster:
                         t_left_pixel_pos = (left_pixel_pos[0] - 1, left_pixel_pos[1] - 1)
                         t_up_pixel_pos = (up_pixel_pos[0] - 1, up_pixel_pos[1] - 1)
                         for direction_loop in range(4):
-                            possible_transitions = self.env.rail.get_transitions(*t_working_position,
-                                                                                 direction_loop)
+                            possible_transitions = self.env.rail.get_transitions((t_working_position,
+                                                                                   direction_loop))
                             orientation = direction_loop
                             if fast_count_nonzero(possible_transitions) == 1:
                                 orientation = fast_argmax(possible_transitions)
@@ -159,7 +158,6 @@ class RailroadSwitchCluster:
         self._find_connected_clusters_and_label(info_image)
 
     def do_debug_plot(self):
-        """Generate and return separate images for connecting edge clusters and railroad switch clusters without titles or axis labels."""
         # Setup renderer
         connecting_edge_cells = []
         connecting_edge_cluster_grid_image = np.copy(self.connecting_edge_cluster_grid)
@@ -175,28 +173,27 @@ class RailroadSwitchCluster:
                     connecting_edge_cluster_grid_image[(h, w)] = np.nan
                     railroad_switch_cluster_grid_image[(h, w)] = np.nan
 
+        print('railroad_switch_cluster_grid')
+        print(self.railroad_switch_cluster_grid)
+        print('connecting_edge_cluster_grid')
+        print(self.connecting_edge_cluster_grid)
+
+        print('railroad_switch_clusters')
+        print(self.railroad_switch_clusters)
+        print('connecting_edge_clusters')
+        print(self.connecting_edge_clusters)
+
         plt.rc('font', size=6)
-        fig1 = plt.subplot(1, 1, 1)
-        fig1.imshow(connecting_edge_cluster_grid_image)
+        ax1 = plt.subplot(1, 2, 1)
+        plt.imshow(connecting_edge_cluster_grid_image)
         for (j, i), label in np.ndenumerate(self.connecting_edge_cluster_grid):
             if label > 0:
-                fig1.text(i, j, int(label), ha='center', va='center', color='white')
-        fig1.axes.get_xaxis().set_visible(False)
-        fig1.axes.get_yaxis().set_visible(False)
-        fig1.axis('off')
-        plt.savefig('connecting_edge_clusters.png', dpi=300, bbox_inches='tight')
-
-        fig2 = plt.subplot(1, 1, 1)
-        fig2.imshow(railroad_switch_cluster_grid_image)
+                ax1.text(i, j, int(label), ha='center', va='center', color='white')
+        ax1.set_title('connecting_edge_clusters', fontsize=10)
+        ax2 = plt.subplot(1, 2, 2)
+        plt.imshow(railroad_switch_cluster_grid_image)
         for (j, i), label in np.ndenumerate(self.railroad_switch_cluster_grid):
-            if label in self.railroad_switch_clusters.keys() and (j, i) in self.railroad_switch_clusters[label]:
-                fig2.text(i, j, int(label), ha='center', va='center', color='white')
-        fig2.axes.get_xaxis().set_visible(False)
-        fig2.axes.get_yaxis().set_visible(False)
-        fig2.axis('off')
-        plt.savefig('railroad_switch_clusters.png', dpi=300, bbox_inches='tight')
-
-        # Load images as numpy arrays with dtype
-        connecting_edge_cluster_image = np.array(Image.open('connecting_edge_clusters.png'))
-        railroad_switch_cluster_image = np.array(Image.open('railroad_switch_clusters.png'))
-        return connecting_edge_cluster_image, railroad_switch_cluster_image
+            if label > 0:
+                ax2.text(i, j, int(label), ha='center', va='center', color='white')
+        ax2.set_title('railroad_switch_clusters', fontsize=10)
+        plt.show()
