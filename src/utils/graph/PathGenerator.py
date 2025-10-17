@@ -44,9 +44,14 @@ class PathGenerator:
         self.paths: Dict[str, List] = {}  # Dictionary of path IDs to paths
         for source_node in station_nodes:
             for target_node in station_nodes:
-                print(f'Calculating paths from {source_node} to {target_node}...')
                 if source_node != target_node:
-                    for k, path in enumerate(self._yen_k_shortest_paths(source_node, target_node, self.k, weight=self.weight)):
+                    edge_paths = self._get_k_shortest_paths(
+                        source_node,
+                        target_node,
+                        self.k,
+                        weight=self.weight
+                    )
+                    for k, path in enumerate(edge_paths):
                         pathID = (source_node, target_node, k)
                         self.paths[pathID] = path
                         if (source_node, target_node) not in self.path_lookup.keys():
@@ -181,14 +186,20 @@ class PathGenerator:
         """
         heap = [] # max-heap of size k storing (-total_weight, edge_path)
         for path in node_paths:
+            if len(path) <= 1:
+                heapq.heappush(heap, (0.0, ()))
+                continue
             edge_options_per_step: List = []
             for u, v in zip(path[:-1], path[1:]):
                 edges = [(u, v, key) for key in self.graph[u][v].keys()]
                 edge_options_per_step.append(edges)
             
             for combination in itertools.product(*edge_options_per_step):
-                total_weight = sum(self.graph[u][v][key]['attr'][weight] for u, v, key in combination)
-    
+                total_weight = sum(
+                    self._edge_weight(self.graph[u][v][key], weight)
+                    for u, v, key in combination
+                )
+
                 # push into heap
                 if len(heap) < self.k:
                     heapq.heappush(heap, (-total_weight, combination))
