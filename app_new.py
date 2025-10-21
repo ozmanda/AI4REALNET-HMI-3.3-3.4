@@ -4,11 +4,14 @@ import random
 import numpy as np
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple, Set, Any
+from itertools import product
 
 from PyQt6 import sip
 from PyQt6.QtCore import QPoint, QSize, Qt, QTimer
 from PyQt6.QtGui import QImage, QPixmap
+from pathlib import Path
+
 from PyQt6.QtWidgets import (
     QApplication,
     QLabel,
@@ -34,7 +37,10 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
     QTableWidget,
     QTableWidgetItem,
-    QHeaderView
+    QHeaderView,
+    QDialog,
+    QDialogButtonBox,
+    QComboBox,
 )
 
 from PIL import Image, ImageDraw, ImageFont
@@ -49,11 +55,13 @@ from flatland.envs.step_utils.states import TrainState
 from flatland.utils.rendertools import RenderTool
 
 from src.utils.environments.scenario_loader import load_scenario_from_json
+from src.utils.graph.ConflictPredictor import ConflictPredictor
 
 STEP_INTERVAL_MS = 500
 DEFAULT_MALFUNCTION_RATE = 1 / 40
 DEFAULT_MALFUNCTION_MIN = 4
 DEFAULT_MALFUNCTION_MAX = 8
+SCENARIO_DIRECTORY = Path(r"C:\Users\ma1198656\OneDrive - FHNW\Dokumente\VSCode\AI4REALNET-T3.4\src\environments")
 
 
 @dataclass
@@ -708,6 +716,177 @@ class SolutionWindow(QMainWindow):
             self.formulation_window = window
 
 
+class ConflictResolutionDialog(QDialog):
+    PREVIEW_COLORS = [
+        (255, 0, 255, 90),
+        (150, 0, 255, 90),
+        (90, 0, 180, 90),
+    ]
+
+    def __init__(self, viewer: "FlatlandViewer", conflicts: List[Dict[str, Any]], parent: Optional[QWidget] = None):
+        super().__init__(parent or viewer)
+        self.viewer = viewer
+        self._conflicts: List[Dict[str, Any]] = conflicts
+        self._button_groups: Dict[int, QButtonGroup] = {}
+        self._current_handles: Tuple[int, ...] = tuple()
+        self._suggestion: Optional[Dict[int, int]] = None
+        self.setModal(True)
+        self.setWindowTitle("Route Conflict Detected")
+        self.resize(QSize(520, 420))
+
+        layout = QVBoxLayout()
+        description_label = QLabel("The following trains are attempting to use overlapping track segments.")
+        description_label.setWordWrap(True)
+        layout.addWidget(description_label)
+
+        self._conflict_list = QListWidget()
+        self._conflict_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._conflict_list.itemSelectionChanged.connect(self._on_conflict_selected)
+        layout.addWidget(self._conflict_list)
+
+        self._options_container = QWidget()
+        self._options_layout = QVBoxLayout()
+        self._options_layout.setContentsMargins(0, 0, 0, 0)
+        self._options_layout.setSpacing(6)
+        self._options_container.setLayout(self._options_layout)
+        layout.addWidget(self._options_container)
+
+        self._suggestion_label = QLabel()
+        self._suggestion_label.setWordWrap(True)
+        self._suggestion_label.setStyleSheet("color:#1c7c54;")
+        layout.addWidget(self._suggestion_label)
+
+        self._status_label = QLabel()
+        self._status_label.setStyleSheet("color:#c0392b;")
+        layout.addWidget(self._status_label)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        button_box.accepted.connect(self._apply_selection)
+        button_box.rejected.connect(self.reject)
+        self._suggestion_button = button_box.addButton("Apply Suggestion", QDialogButtonBox.ButtonRole.ActionRole)
+        self._suggestion_button.clicked.connect(self._apply_suggestion)
+        self._suggestion_button.setVisible(False)
+        layout.addWidget(button_box)
+        self.setLayout(layout)
+
+        self._populate_conflict_list()
+        if self._conflicts:
+            self._conflict_list.setCurrentRow(0)
+        else:
+            self.viewer.clear_preview_paths()
+
+    def closeEvent(self, event):
+        self.viewer.clear_preview_paths()
+        super().closeEvent(event)
+
+    def _populate_conflict_list(self) -> None:
+        self._conflict_list.blockSignals(True)
+        self._conflict_list.clear()
+        for conflict in self._conflicts:
+            agents = conflict.get("agents", ())
+            if agents:
+                text = f"Train {agents[0]} ↔ Train {agents[1]}" if len(agents) >= 2 else f"Train {agents[0]}"
+            else:
+                text = "Unknown trains"
+            item = QListWidgetItem(text)
+            item.setData(Qt.ItemDataRole.UserRole, conflict)
+            self._conflict_list.addItem(item)
+        self._conflict_list.blockSignals(False)
+
+    def _collect_selections(self) -> Dict[int, int]:
+        selections: Dict[int, int] = {}
+        for handle, group in self._button_groups.items():
+            selected_id = group.checkedId()
+            if selected_id >= 0:
+                selections[handle] = selected_id
+        return selections
+
+    def _apply_selection(self) -> None:
+        selections = self._collect_selections()
+        success, conflicts = self.viewer.apply_path_selection(selections)
+        if success:
+            self.viewer.clear_preview_paths()
+            self.accept()
+        else:
+            self._status_label.setText("Selected routes still lead to conflicts. Please choose different paths.")
+            self.viewer.refresh_conflict_state(conflicts)
+
+    def _apply_suggestion(self) -> None:
+        if not self._suggestion:
+            return
+        for handle, index in self._suggestion.items():
+            group = self._button_groups.get(handle)
+            if group is None:
+                continue
+            button = group.button(index)
+            if button is not None:
+                button.setChecked(True)
+        self._apply_selection()
+
+    def _on_conflict_selected(self) -> None:
+        self.viewer.clear_preview_paths()
+        self._button_groups.clear()
+        for i in reversed(range(self._options_layout.count())):
+            item = self._options_layout.takeAt(i)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+        self._suggestion_label.clear()
+        self._suggestion_button.setVisible(False)
+        self._status_label.clear()
+
+        items = self._conflict_list.selectedItems()
+        if not items:
+            return
+        conflict = items[0].data(Qt.ItemDataRole.UserRole)
+        if not conflict:
+            return
+        handles = tuple(conflict.get("agents", ()))
+        self._current_handles = handles
+        self._suggestion = self.viewer.suggest_conflict_free_solution(list(handles), [conflict])
+        if self._suggestion:
+            suggestion_text = self.viewer.describe_suggestion(self._suggestion)
+            self._suggestion_label.setText(suggestion_text)
+            self._suggestion_button.setVisible(True)
+        else:
+            self._suggestion_button.setVisible(False)
+
+        for idx, handle in enumerate(handles):
+            header = QLabel(f"Train {handle} route options:")
+            header.setStyleSheet("font-weight:600;")
+            self._options_layout.addWidget(header)
+            options = self.viewer.get_path_options(handle)
+            button_group = QButtonGroup(self)
+            button_group.setExclusive(True)
+            self._button_groups[handle] = button_group
+            current_index = self.viewer.get_current_path_index(handle)
+            color = self.PREVIEW_COLORS[idx % len(self.PREVIEW_COLORS)]
+            if not options:
+                info_label = QLabel("No alternative routes available.")
+                info_label.setStyleSheet("color:#a0a0a0; font-style: italic;")
+                self._options_layout.addWidget(info_label)
+                continue
+            for option in options:
+                radio = QRadioButton(option["label"])
+                option_index = option["index"]
+                radio.setChecked(option_index == current_index)
+                def _handler(checked: bool, h=handle, idx=option_index, col=color):
+                    if checked:
+                        self.viewer.set_preview_path(h, idx, col)
+                radio.toggled.connect(_handler)
+                button_group.addButton(radio, option_index)
+                self._options_layout.addWidget(radio)
+            self.viewer.set_preview_path(handle, current_index, color)
+
+    def update_conflicts(self, conflicts: List[Dict[str, Any]]) -> None:
+        self._conflicts = conflicts
+        self._populate_conflict_list()
+        if conflicts:
+            self._conflict_list.setCurrentRow(0)
+        else:
+            self.viewer.clear_preview_paths()
+
+
 class FlatlandViewer(QMainWindow):
     """Viewer window that renders the Flatland environment and tracks malfunctions."""
 
@@ -814,6 +993,16 @@ class FlatlandViewer(QMainWindow):
         self._reflection_windows: Dict[int, SelfReflectionWindow] = {}
         self._reflection_history: List[dict] = []
         self._last_agent_rects: Dict[int, tuple[float, float, float, float]] = {}
+        self._conflict_dialog: Optional[ConflictResolutionDialog] = None
+        self._conflict_predictor: Optional[ConflictPredictor] = None
+        self._agent_cell_paths: Dict[int, List[Tuple[int, int]]] = {}
+        self._agent_progress: Dict[int, int] = {}
+        self._conflict_highlight_cells: Dict[Tuple[int, int], int] = {}
+        self._conflict_agents: Set[int] = set()
+        self._path_preview_cells: Dict[int, Tuple[List[Tuple[int, int]], Tuple[int, int, int, int]]] = {}
+        self._active_conflicts: List[Dict[str, Any]] = []
+        self._active_conflict_signature: Optional[Tuple] = None
+        self._resume_after_conflict: bool = False
         self._update_frame()
         self._timer = QTimer(self)
         self._timer.setInterval(self._step_interval_ms)
@@ -826,6 +1015,8 @@ class FlatlandViewer(QMainWindow):
         self._update_sidebar()
         self._ensure_distance_map_ready()
         self._step_count = self._get_env_step_count()
+        self._setup_conflict_predictor(show_dialog=False)
+        self._evaluate_conflicts(show_dialog=True, force_dialog=True)
 
     def _ensure_distance_map_ready(self) -> None:
         distance_map = getattr(self._env, "distance_map", None)
@@ -843,6 +1034,108 @@ class FlatlandViewer(QMainWindow):
         except (TypeError, ValueError):
             return 0
 
+    def _planned_action_for_handle(self, handle: int) -> RailEnvActions:
+        agent = self._env.agents[handle]
+        path = self._agent_cell_paths.get(handle)
+        if not path or len(path) < 2:
+            return RailEnvActions.DO_NOTHING
+        position = self._get_agent_position(handle)
+        if position is None:
+            position = agent.initial_position
+        if position is None:
+            return RailEnvActions.DO_NOTHING
+        index = self._agent_progress.get(handle)
+        if index is None:
+            index = self._locate_position_index(path, position)
+            if index is None:
+                return RailEnvActions.DO_NOTHING
+            self._agent_progress[handle] = index
+        if index >= len(path) - 1:
+            return RailEnvActions.DO_NOTHING
+        next_cell = path[index + 1]
+        desired_dir = self._direction_from_positions(position, next_cell)
+        if desired_dir is None:
+            return RailEnvActions.DO_NOTHING
+        current_dir = agent.direction
+        if current_dir is None:
+            current_dir = getattr(agent, "initial_direction", None)
+        if current_dir is None:
+            return RailEnvActions.DO_NOTHING
+        return self._action_for_direction_change(current_dir, desired_dir)
+
+    def _setup_conflict_predictor(self, show_dialog: bool) -> None:
+        self._close_conflict_dialog()
+        self._conflict_predictor = ConflictPredictor(self._env)
+        self._conflict_predictor.update_agents()
+        self._rebuild_agent_plans()
+        self._evaluate_conflicts(show_dialog=show_dialog, force_dialog=False)
+
+    def _rebuild_agent_plans(self, handles: Optional[List[int]] = None) -> None:
+        if self._conflict_predictor is None:
+            return
+        self._agent_cell_paths = {}
+        self._agent_progress = {}
+        if handles is None:
+            handles = list(self._env.get_agent_handles())
+        for handle in handles:
+            cells = self._conflict_predictor.agent_cell_path(handle)
+            if not cells:
+                continue
+            self._agent_cell_paths[handle] = cells
+            position = self._get_agent_position(handle)
+            if position is None:
+                position = self._env.agents[handle].initial_position
+            index = self._locate_position_index(cells, position)
+            if index is None:
+                index = 0
+            self._agent_progress[handle] = index
+
+    def _locate_position_index(self, cells: List[Tuple[int, int]], position: Optional[tuple[int, int]]) -> Optional[int]:
+        if position is None:
+            return None
+        if isinstance(position, list):
+            position = tuple(position)
+        for idx, cell in enumerate(cells):
+            if cell == position:
+                return idx
+        return None
+
+    def _sync_agent_progress(self) -> None:
+        for handle, cells in self._agent_cell_paths.items():
+            position = self._get_agent_position(handle)
+            if position is None:
+                position = self._env.agents[handle].initial_position
+            if position is None:
+                continue
+            index = self._locate_position_index(cells, position)
+            if index is not None:
+                self._agent_progress[handle] = index
+
+    @staticmethod
+    def _direction_from_positions(current: Tuple[int, int], nxt: Tuple[int, int]) -> Optional[int]:
+        dr = nxt[0] - current[0]
+        dc = nxt[1] - current[1]
+        if dr == -1 and dc == 0:
+            return 0
+        if dr == 0 and dc == 1:
+            return 1
+        if dr == 1 and dc == 0:
+            return 2
+        if dr == 0 and dc == -1:
+            return 3
+        return None
+
+    @staticmethod
+    def _action_for_direction_change(current_dir: int, desired_dir: int) -> RailEnvActions:
+        delta = (desired_dir - current_dir) % 4
+        if delta == 0:
+            return RailEnvActions.MOVE_FORWARD
+        if delta == 1:
+            return RailEnvActions.MOVE_RIGHT
+        if delta == 3:
+            return RailEnvActions.MOVE_LEFT
+        return RailEnvActions.MOVE_FORWARD
+
     def _on_timer_tick(self) -> None:
         if self._episode_done or self._is_paused:
             self._update_frame()
@@ -859,18 +1152,21 @@ class FlatlandViewer(QMainWindow):
             return {"__all__": True}
         actions = self._sample_actions(agent_handles)
         _, _, dones, _ = self._env.step(actions)
+        self._sync_agent_progress()
         self._step_count = self._get_env_step_count()
         self._detect_malfunctions()
+        self._evaluate_conflicts(show_dialog=True)
         return dones
 
     def _sample_actions(self, agent_handles) -> Dict[int, RailEnvActions]:
         actions: Dict[int, RailEnvActions] = {}
+        self._sync_agent_progress()
         for handle in agent_handles:
             agent = self._env.agents[handle]
             if agent.state == TrainState.DONE or agent.malfunction_handler.in_malfunction:
                 actions[handle] = RailEnvActions.DO_NOTHING
                 continue
-            actions[handle] = random.choice(self._movable_actions)
+            actions[handle] = self._planned_action_for_handle(handle)
         return actions
 
     def _get_current_malfunction_state(self) -> Dict[int, bool]:
@@ -966,6 +1262,8 @@ class FlatlandViewer(QMainWindow):
         cell_height = img_height / self._env.height
         border_thickness = max(1, int(min(cell_width, cell_height) * 0.12))
         self._draw_station_labels(draw, cell_width, cell_height, img_width, img_height)
+        self._draw_path_previews(draw, cell_width, cell_height)
+        self._draw_conflict_overlays(draw, cell_width, cell_height)
         self._draw_agent_annotations(draw, cell_width, cell_height, img_width, img_height, border_thickness)
         annotated = image.convert("RGB") if original_channels == 3 else image
         return np.array(annotated)
@@ -1022,6 +1320,56 @@ class FlatlandViewer(QMainWindow):
                 background=(0, 0, 0, 170),
             )
 
+    def _draw_conflict_overlays(
+        self,
+        draw: ImageDraw.ImageDraw,
+        cell_width: float,
+        cell_height: float,
+    ) -> None:
+        if not self._conflict_highlight_cells:
+            return
+        outline_width = max(2, int(min(cell_width, cell_height) * 0.12))
+        for (row, col), count in self._conflict_highlight_cells.items():
+            left = col * cell_width
+            top = row * cell_height
+            right = left + cell_width
+            bottom = top + cell_height
+            draw.rectangle(
+                [left, top, right, bottom],
+                outline=(255, 0, 0, 255),
+                width=outline_width,
+            )
+
+    def _draw_path_previews(
+        self,
+        draw: ImageDraw.ImageDraw,
+        cell_width: float,
+        cell_height: float,
+    ) -> None:
+        if not self._path_preview_cells:
+            return
+        for cells, color in self._path_preview_cells.values():
+            for row, col in cells:
+                left = col * cell_width
+                top = row * cell_height
+                right = left + cell_width
+                bottom = top + cell_height
+                inset = min(cell_width, cell_height) * 0.25
+                if inset > 0:
+                    left += inset
+                    top += inset
+                    right -= inset
+                    bottom -= inset
+                    if right <= left or bottom <= top:
+                        left = col * cell_width
+                        top = row * cell_height
+                        right = left + cell_width
+                        bottom = top + cell_height
+                draw.rectangle(
+                    [left, top, right, bottom],
+                    fill=color,
+                )
+
     def _draw_agent_annotations(
         self,
         draw: ImageDraw.ImageDraw,
@@ -1040,10 +1388,15 @@ class FlatlandViewer(QMainWindow):
             top = row * cell_height
             right = left + cell_width
             bottom = top + cell_height
+            outline = None
             if handle in self._malfunctioned_handles:
+                outline = (255, 0, 0, 255)
+            elif handle in self._conflict_agents:
+                outline = (255, 165, 0, 255)
+            if outline is not None:
                 draw.rectangle(
                     [left, top, right, bottom],
-                    outline=(255, 0, 0, 255),
+                    outline=outline,
                     width=border_thickness,
                 )
             text = str(handle)
@@ -1109,6 +1462,220 @@ class FlatlandViewer(QMainWindow):
             if handle in self._malfunctioned_handles:
                 self._last_highlight_rects[handle] = rect
 
+    def _update_conflict_overlays(self, conflicts: List[Dict[str, Any]]) -> None:
+        self._conflict_highlight_cells = {}
+        self._conflict_agents = set()
+        for conflict in conflicts:
+            cells: Set[Tuple[int, int]] = set()
+            resource_id = conflict.get("resource_id")
+            if isinstance(resource_id, tuple) and resource_id:
+                if resource_id[0] == "cells":
+                    cells.update(resource_id[1])
+            for edge_key in ("edge_A", "edge_B"):
+                edge = conflict.get(edge_key)
+                if edge and self._conflict_predictor is not None:
+                    u, v, key = edge
+                    attr = self._conflict_predictor.graph.graph[u][v][key]["attr"]
+                    resources = attr.get("resources", [])
+                    cells.add(u)
+                    cells.add(v)
+                    cells.update(cell for cell, _ in resources)
+            for cell in cells:
+                self._conflict_highlight_cells[cell] = self._conflict_highlight_cells.get(cell, 0) + 1
+            agents = conflict.get("agents", ())
+            for agent in agents:
+                self._conflict_agents.add(agent)
+        self._update_frame()
+
+    def _evaluate_conflicts(self, show_dialog: bool = False, force_dialog: bool = False) -> None:
+        if self._conflict_predictor is None:
+            return
+        self._conflict_predictor.update_agents()
+        self._conflict_predictor.conflict_matrix()
+        conflicts = list(self._conflict_predictor.detected_conflicts)
+        self._active_conflicts = conflicts
+        self._update_conflict_overlays(conflicts)
+        signature = tuple(
+            sorted(
+                (
+                    conflict.get("resource_id"),
+                    tuple(sorted(conflict.get("agents", ())))
+                )
+                for conflict in conflicts
+            )
+        ) if conflicts else None
+        if conflicts:
+            should_notify = show_dialog and (
+                force_dialog
+                or signature != self._active_conflict_signature
+                or self._conflict_dialog is None
+            )
+            if should_notify:
+                self._active_conflict_signature = signature
+                self._notify_conflicts(conflicts)
+            else:
+                self._active_conflict_signature = signature
+        else:
+            self._active_conflict_signature = None
+            self._conflict_agents.clear()
+            self._conflict_highlight_cells.clear()
+            self._close_conflict_dialog()
+            self._resume_after_conflict_if_needed()
+
+    def _notify_conflicts(self, conflicts: List[Dict[str, Any]]) -> None:
+        self._pause_for_conflict_dialog()
+        self._close_conflict_dialog()
+        dialog = ConflictResolutionDialog(self, conflicts, self)
+        dialog.finished.connect(self._on_conflict_dialog_closed)
+        self._conflict_dialog = dialog
+        dialog.show()
+
+    def _pause_for_conflict_dialog(self) -> None:
+        if self._episode_done:
+            return
+        if not self._is_paused:
+            self._timer.stop()
+            self._resume_after_conflict = not self._manual_pause
+            self._is_paused = True
+
+    def _resume_after_conflict_if_needed(self) -> None:
+        if self._resume_after_conflict and not self._episode_done:
+            self._is_paused = False
+            self._timer.start()
+        self._resume_after_conflict = False
+
+    def _close_conflict_dialog(self) -> None:
+        if self._conflict_dialog is not None and not sip.isdeleted(self._conflict_dialog):
+            try:
+                self._conflict_dialog.finished.disconnect(self._on_conflict_dialog_closed)  # type: ignore[arg-type]
+            except Exception:
+                pass
+            try:
+                self._conflict_dialog.close()
+            except RuntimeError:
+                pass
+        self._conflict_dialog = None
+
+    def _on_conflict_dialog_closed(self, result: int) -> None:
+        self.clear_preview_paths()
+        self._conflict_dialog = None
+        if not self._active_conflicts:
+            self._resume_after_conflict_if_needed()
+
+    def describe_conflicts(self, conflicts: List[Dict[str, Any]]) -> str:
+        if not conflicts:
+            return "No conflicts detected."
+        lines = []
+        for conflict in conflicts:
+            agents = conflict.get("agents", ())
+            agent_text = " and ".join(str(a) for a in agents) if agents else "Unknown trains"
+            resource_id = conflict.get("resource_id")
+            if isinstance(resource_id, tuple) and resource_id and resource_id[0] == "cells":
+                cells = sorted(resource_id[1])
+                cell_text = ", ".join(f"({r},{c})" for r, c in cells)
+            else:
+                cell_text = str(resource_id)
+            interval = conflict.get("interval_A")
+            time_text = ""
+            if isinstance(interval, tuple):
+                time_text = f" between t={interval[0]:.1f} and t={interval[1]:.1f}"
+            lines.append(f"Trains {agent_text} share track segment {cell_text}{time_text}.")
+        return "\n".join(lines)
+
+    def get_path_options(self, handle: int) -> List[Dict[str, Any]]:
+        if self._conflict_predictor is None:
+            return []
+        path_ids = self._conflict_predictor.get_available_paths(handle)
+        options: List[Dict[str, Any]] = []
+        for idx, path_id in enumerate(path_ids):
+            cells = self._conflict_predictor.path_cells(path_id)
+            steps = max(0, len(cells) - 1)
+            label = f"Option {idx + 1}: {steps} steps"
+            options.append({"index": idx, "label": label})
+        return options
+
+    def get_current_path_index(self, handle: int) -> int:
+        if self._conflict_predictor is None:
+            return 0
+        return self._conflict_predictor.get_selected_path_index(handle)
+
+    def describe_suggestion(self, suggestion: Dict[int, int]) -> str:
+        if not suggestion:
+            return "No conflict-free alternative could be found automatically."
+        parts = [f"Train {handle} ? option {index + 1}" for handle, index in suggestion.items()]
+        return "Suggested conflict-free combination: " + ", ".join(parts)
+
+    def suggest_conflict_free_solution(self, handles: List[int], conflicts: List[Dict[str, Any]]) -> Dict[int, int]:
+        if self._conflict_predictor is None:
+            return {}
+        path_spaces: Dict[int, List[int]] = {}
+        for handle in handles:
+            options = self._conflict_predictor.get_available_paths(handle)
+            if not options:
+                return {}
+            path_spaces[handle] = list(range(min(len(options), 4)))
+        for combination in product(*(path_spaces[h] for h in handles)):
+            overrides = {handle: idx for handle, idx in zip(handles, combination)}
+            _, conflicts_after = self._conflict_predictor.evaluate_selection(overrides)
+            if not conflicts_after:
+                return overrides
+        return {}
+
+    def apply_path_selection(self, selections: Dict[int, int]) -> Tuple[bool, List[Dict[str, Any]]]:
+        if self._conflict_predictor is None:
+            return True, []
+        changed = False
+        for handle, index in selections.items():
+            if self._conflict_predictor.get_selected_path_index(handle) != index:
+                self._conflict_predictor.select_agent_path(handle, index)
+                changed = True
+        if changed:
+            self._rebuild_agent_plans()
+        self._evaluate_conflicts(show_dialog=False)
+        resolved = not self._active_conflicts
+        return resolved, self._active_conflicts
+
+    def refresh_conflict_state(self, conflicts: List[Dict[str, Any]]) -> None:
+        self._active_conflicts = conflicts
+        self._update_conflict_overlays(conflicts)
+        if conflicts:
+            signature = tuple(
+                sorted(
+                    (
+                        conflict.get("resource_id"),
+                        tuple(sorted(conflict.get("agents", ())))
+                    )
+                    for conflict in conflicts
+                )
+            )
+            self._active_conflict_signature = signature
+            if self._conflict_dialog is not None and not sip.isdeleted(self._conflict_dialog):
+                try:
+                    self._conflict_dialog.update_conflicts(conflicts)
+                except RuntimeError:
+                    pass
+        else:
+            self._active_conflict_signature = None
+            if self._conflict_dialog is not None and not sip.isdeleted(self._conflict_dialog):
+                try:
+                    self._conflict_dialog.update_conflicts(conflicts)
+                except RuntimeError:
+                    pass
+
+    def set_preview_path(self, agent_handle: int, path_index: int, color: Tuple[int, int, int, int]) -> None:
+        if self._conflict_predictor is None:
+            return
+        path_ids = self._conflict_predictor.get_available_paths(agent_handle)
+        if path_index < 0 or path_index >= len(path_ids):
+            return
+        cells = self._conflict_predictor.path_cells(path_ids[path_index])
+        self._path_preview_cells[agent_handle] = (cells, color)
+        self._update_frame()
+
+    def clear_preview_paths(self) -> None:
+        if self._path_preview_cells:
+            self._path_preview_cells.clear()
+            self._update_frame()
     def _on_sidebar_timer(self) -> None:
         self._update_sidebar()
         for handle, window in list(self._solution_windows.items()):
@@ -1314,6 +1881,7 @@ class FlatlandViewer(QMainWindow):
         self._step_count = self._get_env_step_count()
         self._update_frame()
         self._update_sidebar()
+        self._setup_conflict_predictor(show_dialog=False)
         self._timer.start()
 
     def _close_all_auxiliary_windows(self) -> None:
@@ -1729,8 +2297,14 @@ class StartWindow(QMainWindow):
         model_browse_btn.clicked.connect(self._browse_model_file)
         self.scenario_path_edit = QLineEdit()
         self.scenario_path_edit.setPlaceholderText("Optional scenario JSON file")
+        self.scenario_combo = QComboBox()
+        self._populate_scenario_combo()
+        self.scenario_combo.currentIndexChanged.connect(self._on_scenario_combo_changed)
         scenario_browse_btn = QPushButton("Browse...")
         scenario_browse_btn.clicked.connect(self._browse_scenario_file)
+        self.scenario_path_edit.editingFinished.connect(
+            lambda: self._sync_combo_to_path(Path(text) if (text := self.scenario_path_edit.text().strip()) else None)
+        )
         self.width_spin = QSpinBox()
         self.width_spin.setRange(10, 120)
         self.width_spin.setValue(35)
@@ -1754,6 +2328,7 @@ class StartWindow(QMainWindow):
         form_layout = QFormLayout()
         form_layout.addRow("Agent model:", self._make_file_row(self.model_path_edit, model_browse_btn))
         form_layout.addRow("Scenario file:", self._make_file_row(self.scenario_path_edit, scenario_browse_btn))
+        form_layout.addRow("Available scenarios:", self.scenario_combo)
         form_layout.addRow("Width:", self.width_spin)
         form_layout.addRow("Height:", self.height_spin)
         form_layout.addRow("Agents:", self.agents_spin)
@@ -1791,10 +2366,52 @@ class StartWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Select scenario", "", "Scenario files (*.json);;All files (*)")
         if path:
             self.scenario_path_edit.setText(path)
+            self._sync_combo_to_path(Path(path))
+        else:
+            # ensure combo reflects manual edits
+            self._sync_combo_to_path(Path(self.scenario_path_edit.text().strip()))
+
+    def _populate_scenario_combo(self) -> None:
+        self.scenario_combo.blockSignals(True)
+        self.scenario_combo.clear()
+        self.scenario_combo.addItem("Select a bundled scenario...", "")
+        if SCENARIO_DIRECTORY.exists():
+            for file in sorted(SCENARIO_DIRECTORY.glob("*.json")):
+                self.scenario_combo.addItem(file.name, str(file))
+        self.scenario_combo.blockSignals(False)
+
+    def _on_scenario_combo_changed(self, index: int) -> None:
+        if index < 0:
+            return
+        path = self.scenario_combo.itemData(index)
+        if path:
+            self.scenario_path_edit.setText(path)
+
+    def _sync_combo_to_path(self, path: Optional[Path]) -> None:
+        if path is None:
+            self.scenario_combo.setCurrentIndex(0)
+            return
+        try:
+            normalized = str(path.resolve())
+        except Exception:
+            self.scenario_combo.setCurrentIndex(0)
+            return
+        for idx in range(self.scenario_combo.count()):
+            data = self.scenario_combo.itemData(idx)
+            if data and Path(data).resolve() == Path(normalized):
+                self.scenario_combo.setCurrentIndex(idx)
+                return
+        # if not present, leave combo at custom state
 
     def _on_start_clicked(self) -> None:
         model_path = self.model_path_edit.text().strip() or None
-        scenario_path = self.scenario_path_edit.text().strip() or None
+        scenario_text = self.scenario_path_edit.text().strip()
+        scenario_path = scenario_text or None
+        if scenario_path is None:
+            data = self.scenario_combo.currentData()
+            if data:
+                scenario_path = str(data)
+                self.scenario_path_edit.setText(scenario_path)
         self.status_label.clear()
         if scenario_path and not Path(scenario_path).exists():
             QMessageBox.critical(self, "Invalid scenario", "The selected scenario file does not exist.")
@@ -1812,11 +2429,7 @@ class StartWindow(QMainWindow):
             malfunction_min=self.mal_min_spin.value(),
             malfunction_max=self.mal_max_spin.value(),
         )
-        try:
-            env = self._build_environment(config)
-        except Exception as exc:  # noqa: BLE001
-            QMessageBox.critical(self, "Failed to start", f"Could not create environment:\n{exc}")
-            return
+        env = self._build_environment(config)
         viewer = FlatlandViewer(env, step_interval_ms=STEP_INTERVAL_MS, model_path=config.model_path, config=config)
         viewer.show()
         self.viewer = viewer
