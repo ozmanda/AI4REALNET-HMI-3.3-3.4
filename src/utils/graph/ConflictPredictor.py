@@ -38,7 +38,7 @@ class ConflictPredictor():
         self._place_agents()
         self._match_edges()
 
-    def update_agents(self, agents: List[EnvAgent]): 
+    def update_agents(self, agents: Optional[List[EnvAgent]] = None) -> None: 
         """ Update agent positions and re-calculate their origin nodes and rail IDs. """
         self._place_agents()
         self._match_edges()
@@ -180,6 +180,51 @@ class ConflictPredictor():
             return []
         start_node, target_node = station_pair
         return self.station_path_lookup.get((start_node, target_node), [])
+
+    def get_available_paths(self, agent_handle: int) -> List[str]:
+        """Return the list of path identifiers available to the given agent."""
+        return list(self._get_available_paths_for_agent(agent_handle))
+
+    def path_cells(self, path_id: str) -> List[Tuple[int, int]]:
+        edges = self.station_paths.get(path_id)
+        if edges is None:
+            return []
+        cells: List[Tuple[int, int]] = []
+        for idx, edge in enumerate(edges):
+            u, v, key = edge
+            if idx == 0:
+                cells.append(u)
+            attr = self.graph.graph[u][v][key]["attr"]
+            resources = attr.get("resources", [])
+            for cell, _ in resources:
+                if not cells or cells[-1] != cell:
+                    cells.append(cell)
+            if not cells or cells[-1] != v:
+                cells.append(v)
+        return cells
+
+    def agent_cell_path(self, agent_handle: int) -> List[Tuple[int, int]]:
+        path_info = self.agent_paths.get(agent_handle)
+        if not path_info:
+            return []
+        return self.path_cells(path_info["path_id"])
+
+    def get_selected_path_index(self, agent_handle: int) -> int:
+        return int(self.agent_path_selection.get(agent_handle, 0))
+
+    def evaluate_selection(self, overrides: Optional[Dict[int, int]] = None) -> Tuple[List[List[int]], List[Dict[str, Any]]]:
+        original_selection = dict(self.agent_path_selection)
+        try:
+            if overrides:
+                self.agent_path_selection.update(overrides)
+            matrix = self.conflict_matrix()
+            conflicts = list(self.detected_conflicts)
+            return matrix, conflicts
+        finally:
+            if overrides:
+                self.agent_path_selection = original_selection
+                self._assign_agent_paths()
+                self.conflict_matrix()
 
 
     def cell_time_window(self, cell: Tuple[int, int], train_speed: float) -> Tuple[float, float]:
