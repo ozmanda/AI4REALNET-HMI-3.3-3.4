@@ -25,6 +25,7 @@ class ConflictPredictor():
         self.agent_conflict_matrix: List[List[int]] = []
         self._latest_conflict_detail: Optional[Dict[str, Any]] = None
         self.agent_path_selection: Dict[int, int] = {}
+        self.agent_delay_offsets: Dict[int, float] = {}
         self._precompute_station_paths()
         self._init_conflict_predictor()
         self._assign_agent_paths()
@@ -212,17 +213,31 @@ class ConflictPredictor():
     def get_selected_path_index(self, agent_handle: int) -> int:
         return int(self.agent_path_selection.get(agent_handle, 0))
 
-    def evaluate_selection(self, overrides: Optional[Dict[int, int]] = None) -> Tuple[List[List[int]], List[Dict[str, Any]]]:
+    def evaluate_selection(
+        self,
+        overrides: Optional[Dict[int, int]] = None,
+        delay_overrides: Optional[Dict[int, float]] = None,
+    ) -> Tuple[List[List[int]], List[Dict[str, Any]]]:
         original_selection = dict(self.agent_path_selection)
+        original_delays = dict(self.agent_delay_offsets)
         try:
             if overrides:
                 self.agent_path_selection.update(overrides)
+            if delay_overrides is not None:
+                for handle, value in delay_overrides.items():
+                    delay = max(0.0, float(value))
+                    if delay > 0:
+                        self.agent_delay_offsets[handle] = delay
+                    else:
+                        self.agent_delay_offsets.pop(handle, None)
+                    self.agent_schedules.pop(handle, None)
             matrix = self.conflict_matrix()
             conflicts = list(self.detected_conflicts)
             return matrix, conflicts
         finally:
-            if overrides:
+            if overrides is not None or delay_overrides is not None:
                 self.agent_path_selection = original_selection
+                self.agent_delay_offsets = original_delays
                 self._assign_agent_paths()
                 self.conflict_matrix()
 
@@ -324,7 +339,7 @@ class ConflictPredictor():
 
             agent_a = self.env.agents[handle_a]
             speed_a = self._get_agent_speed(agent_a)
-            departure_a = self._get_departure_time(agent_a)
+            departure_a = self._get_departure_time(handle_a, agent_a)
             path_a = path_info_a['edges']
 
             for idx_b in range(idx_a + 1, agent_count):
@@ -335,7 +350,7 @@ class ConflictPredictor():
 
                 agent_b = self.env.agents[handle_b]
                 speed_b = self._get_agent_speed(agent_b)
-                departure_b = self._get_departure_time(agent_b)
+                departure_b = self._get_departure_time(handle_b, agent_b)
                 path_b = path_info_b['edges']
 
                 conflict = self._calculate_conflict_time(path_a, path_b, speed_a, speed_b, departure_a, departure_b)
@@ -373,6 +388,19 @@ class ConflictPredictor():
             raise ValueError(f"Failed to assign selected path for agent {agent_handle}.")
         self.agent_schedules.pop(agent_handle, None)
 
+    def set_agent_delay(self, agent_handle: int, delay_steps: float) -> None:
+        delay = max(0.0, float(delay_steps))
+        if delay <= 0:
+            self.agent_delay_offsets.pop(agent_handle, None)
+        else:
+            self.agent_delay_offsets[agent_handle] = delay
+        self.agent_schedules.pop(agent_handle, None)
+
+    def clear_agent_delay(self, agent_handle: int) -> None:
+        if agent_handle in self.agent_delay_offsets:
+            self.agent_delay_offsets.pop(agent_handle, None)
+            self.agent_schedules.pop(agent_handle, None)
+
     def _extract_waypoint_position(self, waypoint_entry: Any) -> Tuple[int, int]:
         waypoint = waypoint_entry
         if isinstance(waypoint_entry, (list, tuple)) and waypoint_entry:
@@ -386,13 +414,16 @@ class ConflictPredictor():
             speed = getattr(agent.speed_counter, 'max_speed', 1.0)
         return float(speed if speed and speed > 0 else 1.0)
 
-    def _get_departure_time(self, agent) -> float:
+    def _get_departure_time(self, agent_handle: int, agent) -> float:
         departures = getattr(agent, 'waypoints_earliest_departure', None)
+        base = 0.0
         if departures:
             for value in departures:
                 if value is not None:
-                    return float(value)
-        return 0.0
+                    base = float(value)
+                    break
+        delay = float(self.agent_delay_offsets.get(agent_handle, 0.0))
+        return base + delay
 
     def _build_resource_schedule(self, path: List[Tuple[Any, Any, Any]],
                                  train_speed: float,
