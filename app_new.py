@@ -1,10 +1,10 @@
-﻿import sys
+import sys
 import time
 import random
 import numpy as np
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple, Set, Any
+from typing import Callable, Dict, List, Optional, Tuple, Set, Any, Iterable
 from itertools import product
 
 from PyQt6 import sip
@@ -717,17 +717,18 @@ class SolutionWindow(QMainWindow):
 
 
 class ConflictResolutionDialog(QDialog):
-    PREVIEW_COLORS = [
-        (255, 0, 255, 90),
-        (150, 0, 255, 90),
-        (90, 0, 180, 90),
+    COLOR_INFO = [
+        ((255, 0, 0, 140), "Red"),
+        ((0, 90, 255, 140), "Blue"),
     ]
+    PREVIEW_COLORS = [info[0] for info in COLOR_INFO]
 
     def __init__(self, viewer: "FlatlandViewer", conflicts: List[Dict[str, Any]], parent: Optional[QWidget] = None):
         super().__init__(parent or viewer)
         self.viewer = viewer
         self._conflicts: List[Dict[str, Any]] = conflicts
         self._button_groups: Dict[int, QButtonGroup] = {}
+        self._delay_controls: Dict[int, QSpinBox] = {}
         self._current_handles: Tuple[int, ...] = tuple()
         self._suggestion: Optional[Dict[int, int]] = None
         self.setModal(True)
@@ -756,6 +757,11 @@ class ConflictResolutionDialog(QDialog):
         self._suggestion_label.setStyleSheet("color:#1c7c54;")
         layout.addWidget(self._suggestion_label)
 
+        self._resolution_label = QLabel()
+        self._resolution_label.setWordWrap(True)
+        self._resolution_label.setStyleSheet("color:#444444;")
+        layout.addWidget(self._resolution_label)
+
         self._status_label = QLabel()
         self._status_label.setStyleSheet("color:#c0392b;")
         layout.addWidget(self._status_label)
@@ -777,6 +783,7 @@ class ConflictResolutionDialog(QDialog):
 
     def closeEvent(self, event):
         self.viewer.clear_preview_paths()
+        self.viewer.clear_conflict_focus()
         super().closeEvent(event)
 
     def _populate_conflict_list(self) -> None:
@@ -784,32 +791,80 @@ class ConflictResolutionDialog(QDialog):
         self._conflict_list.clear()
         for conflict in self._conflicts:
             agents = conflict.get("agents", ())
-            if agents:
-                text = f"Train {agents[0]} ↔ Train {agents[1]}" if len(agents) >= 2 else f"Train {agents[0]}"
-            else:
-                text = "Unknown trains"
+            parts: List[str] = []
+            for idx, handle in enumerate(agents):
+                color_name = self._color_name_for_index(idx)
+                suffix = f" ({color_name})" if color_name else ""
+                parts.append(f"Train {handle}{suffix}")
+            text = " vs ".join(parts) if parts else "Unknown trains"
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, conflict)
             self._conflict_list.addItem(item)
         self._conflict_list.blockSignals(False)
 
-    def _collect_selections(self) -> Dict[int, int]:
+    def _collect_decisions(self) -> Tuple[Dict[int, int], Dict[int, int]]:
         selections: Dict[int, int] = {}
         for handle, group in self._button_groups.items():
             selected_id = group.checkedId()
             if selected_id >= 0:
                 selections[handle] = selected_id
-        return selections
+        delays: Dict[int, int] = {}
+        for handle, spin in self._delay_controls.items():
+            value = max(0, int(spin.value()))
+            delays[handle] = value
+        return selections, delays
+
+    def _on_delay_changed(self, _value: int) -> None:
+        self._update_resolution_preview()
+
+    def _color_name_for_index(self, idx: int) -> str:
+        if idx < len(self.COLOR_INFO):
+            return self.COLOR_INFO[idx][1]
+        return ""
+
+    def _create_color_chip(self, color: Tuple[int, int, int, int]) -> QLabel:
+        chip = QLabel()
+        chip.setFixedSize(14, 14)
+        r, g, b, a = color
+        chip.setStyleSheet(
+            f"background-color: rgba({r}, {g}, {b}, {a});"
+            "border:1px solid rgba(0,0,0,120);"
+            "border-radius:3px;"
+        )
+        return chip
+
+    def _update_resolution_preview(self) -> None:
+        if not self._button_groups:
+            self._resolution_label.clear()
+            return
+        selections, delays = self._collect_decisions()
+        if not selections and not any(value > 0 for value in delays.values()):
+            self._resolution_label.setStyleSheet("color:#444444;")
+            self._resolution_label.setText("Adjust routes or delays to preview conflict status.")
+            return
+        resolved, conflicts = self.viewer.preview_conflict_resolution(selections, delays)
+        if resolved:
+            self._resolution_label.setStyleSheet("color:#1c7c54;")
+            self._resolution_label.setText("Selected routes and delays resolve the current conflict.")
+            self._status_label.clear()
+        else:
+            count = len(conflicts)
+            suffix = "conflict" if count == 1 else "conflicts"
+            self._resolution_label.setStyleSheet("color:#c27c1c;")
+            self._resolution_label.setText(f"{count} {suffix} still detected with the current selection.")
 
     def _apply_selection(self) -> None:
-        selections = self._collect_selections()
-        success, conflicts = self.viewer.apply_path_selection(selections)
+        selections, delays = self._collect_decisions()
+        success, conflicts = self.viewer.apply_path_selection(selections, delays)
         if success:
             self.viewer.clear_preview_paths()
+            self.viewer.clear_conflict_focus()
+            self.viewer.ensure_simulation_running()
             self.accept()
         else:
             self._status_label.setText("Selected routes still lead to conflicts. Please choose different paths.")
-            self.viewer.refresh_conflict_state(conflicts)
+            self.viewer.refresh_conflict_state()
+            self._update_resolution_preview()
 
     def _apply_suggestion(self) -> None:
         if not self._suggestion:
@@ -826,6 +881,7 @@ class ConflictResolutionDialog(QDialog):
     def _on_conflict_selected(self) -> None:
         self.viewer.clear_preview_paths()
         self._button_groups.clear()
+        self._delay_controls.clear()
         for i in reversed(range(self._options_layout.count())):
             item = self._options_layout.takeAt(i)
             widget = item.widget()
@@ -834,15 +890,23 @@ class ConflictResolutionDialog(QDialog):
         self._suggestion_label.clear()
         self._suggestion_button.setVisible(False)
         self._status_label.clear()
+        self._resolution_label.clear()
+        self._resolution_label.setStyleSheet("color:#444444;")
 
         items = self._conflict_list.selectedItems()
         if not items:
+            self.viewer.clear_conflict_focus()
             return
         conflict = items[0].data(Qt.ItemDataRole.UserRole)
         if not conflict:
+            self.viewer.clear_conflict_focus()
             return
         handles = tuple(conflict.get("agents", ()))
         self._current_handles = handles
+        if handles:
+            self.viewer.set_conflict_focus(handles)
+        else:
+            self.viewer.clear_conflict_focus()
         self._suggestion = self.viewer.suggest_conflict_free_solution(list(handles), [conflict])
         if self._suggestion:
             suggestion_text = self.viewer.describe_suggestion(self._suggestion)
@@ -852,15 +916,30 @@ class ConflictResolutionDialog(QDialog):
             self._suggestion_button.setVisible(False)
 
         for idx, handle in enumerate(handles):
-            header = QLabel(f"Train {handle} route options:")
-            header.setStyleSheet("font-weight:600;")
-            self._options_layout.addWidget(header)
+            color = self.PREVIEW_COLORS[idx % len(self.PREVIEW_COLORS)]
+            color_name = self._color_name_for_index(idx)
+            header_row = QWidget()
+            header_layout = QHBoxLayout()
+            header_layout.setContentsMargins(0, 0, 0, 0)
+            header_layout.setSpacing(6)
+            color_chip = self._create_color_chip(color)
+            if color_name:
+                color_chip.setToolTip(f"{color_name} path highlight")
+            header_layout.addWidget(color_chip, 0, Qt.AlignmentFlag.AlignVCenter)
+            header_text = f"Train {handle} route options"
+            if color_name:
+                header_text += f" ({color_name})"
+            header_label = QLabel(header_text + ":")
+            header_label.setStyleSheet("font-weight:600;color:#f0f0f0;")
+            header_layout.addWidget(header_label, 0, Qt.AlignmentFlag.AlignVCenter)
+            header_layout.addStretch()
+            header_row.setLayout(header_layout)
+            self._options_layout.addWidget(header_row)
             options = self.viewer.get_path_options(handle)
             button_group = QButtonGroup(self)
             button_group.setExclusive(True)
             self._button_groups[handle] = button_group
             current_index = self.viewer.get_current_path_index(handle)
-            color = self.PREVIEW_COLORS[idx % len(self.PREVIEW_COLORS)]
             if not options:
                 info_label = QLabel("No alternative routes available.")
                 info_label.setStyleSheet("color:#a0a0a0; font-style: italic;")
@@ -873,10 +952,47 @@ class ConflictResolutionDialog(QDialog):
                 def _handler(checked: bool, h=handle, idx=option_index, col=color):
                     if checked:
                         self.viewer.set_preview_path(h, idx, col)
+                        self._update_resolution_preview()
                 radio.toggled.connect(_handler)
                 button_group.addButton(radio, option_index)
                 self._options_layout.addWidget(radio)
             self.viewer.set_preview_path(handle, current_index, color)
+
+            delay_container = QVBoxLayout()
+            delay_container.setContentsMargins(24, 2, 0, 0)
+            delay_container.setSpacing(2)
+            delay_row = QHBoxLayout()
+            delay_row.setContentsMargins(0, 0, 0, 0)
+            delay_row.setSpacing(6)
+            delay_label = QLabel("Add delay (steps):")
+            delay_label.setStyleSheet("color:#dcdcdc;")
+            delay_spin = QSpinBox()
+            delay_spin.setRange(0, 20)
+            delay_spin.setValue(0)
+            delay_spin.setToolTip("Number of steps to hold before the train resumes movement.")
+            delay_spin.valueChanged.connect(self._on_delay_changed)
+            self._delay_controls[handle] = delay_spin
+            delay_row.addWidget(delay_label)
+            delay_row.addWidget(delay_spin)
+            delay_row.addStretch()
+            delay_container.addLayout(delay_row)
+
+            hold_remaining = self.viewer.get_agent_hold_remaining(handle)
+            cumulative_delay = self.viewer.get_agent_cumulative_delay(handle)
+            status_parts: List[str] = []
+            if hold_remaining > 0:
+                status_parts.append(f"Hold pending: {hold_remaining} step{'s' if hold_remaining != 1 else ''}")
+            status_parts.append(f"Total applied: {cumulative_delay} step{'s' if cumulative_delay != 1 else ''}")
+            status_label = QLabel(" | ".join(status_parts))
+            status_label.setWordWrap(True)
+            status_label.setStyleSheet("color:#a0a0a0; font-size:11px;")
+            delay_container.addWidget(status_label)
+            self._options_layout.addLayout(delay_container)
+
+            if idx < len(handles) - 1:
+                self._options_layout.addSpacing(8)
+
+        self._update_resolution_preview()
 
     def update_conflicts(self, conflicts: List[Dict[str, Any]]) -> None:
         self._conflicts = conflicts
@@ -885,6 +1001,7 @@ class ConflictResolutionDialog(QDialog):
             self._conflict_list.setCurrentRow(0)
         else:
             self.viewer.clear_preview_paths()
+            self.viewer.clear_conflict_focus()
 
 
 class FlatlandViewer(QMainWindow):
@@ -1000,7 +1117,12 @@ class FlatlandViewer(QMainWindow):
         self._conflict_highlight_cells: Dict[Tuple[int, int], int] = {}
         self._conflict_agents: Set[int] = set()
         self._path_preview_cells: Dict[int, Tuple[List[Tuple[int, int]], Tuple[int, int, int, int]]] = {}
+        self._agent_hold_steps_remaining: Dict[int, int] = {}
+        self._agent_delay_plan: Dict[int, int] = {}
+        self._held_agents_last_step: List[int] = []
         self._active_conflicts: List[Dict[str, Any]] = []
+        self._focused_conflicts: List[Dict[str, Any]] = []
+        self._conflict_focus_handles: Optional[Set[int]] = None
         self._active_conflict_signature: Optional[Tuple] = None
         self._resume_after_conflict: bool = False
         self._update_frame()
@@ -1152,6 +1274,7 @@ class FlatlandViewer(QMainWindow):
             return {"__all__": True}
         actions = self._sample_actions(agent_handles)
         _, _, dones, _ = self._env.step(actions)
+        self._decrement_hold_steps()
         self._sync_agent_progress()
         self._step_count = self._get_env_step_count()
         self._detect_malfunctions()
@@ -1161,13 +1284,38 @@ class FlatlandViewer(QMainWindow):
     def _sample_actions(self, agent_handles) -> Dict[int, RailEnvActions]:
         actions: Dict[int, RailEnvActions] = {}
         self._sync_agent_progress()
+        held_this_step: List[int] = []
         for handle in agent_handles:
             agent = self._env.agents[handle]
-            if agent.state == TrainState.DONE or agent.malfunction_handler.in_malfunction:
+            if agent.state == TrainState.DONE:
+                self._agent_hold_steps_remaining.pop(handle, None)
+                actions[handle] = RailEnvActions.DO_NOTHING
+                continue
+            hold_remaining = self._agent_hold_steps_remaining.get(handle, 0)
+            if hold_remaining > 0:
+                actions[handle] = RailEnvActions.DO_NOTHING
+                held_this_step.append(handle)
+                continue
+            if agent.malfunction_handler.in_malfunction:
                 actions[handle] = RailEnvActions.DO_NOTHING
                 continue
             actions[handle] = self._planned_action_for_handle(handle)
+        self._held_agents_last_step = held_this_step
         return actions
+
+    def _decrement_hold_steps(self) -> None:
+        if not self._held_agents_last_step:
+            return
+        for handle in self._held_agents_last_step:
+            remaining = self._agent_hold_steps_remaining.get(handle)
+            if remaining is None:
+                continue
+            new_remaining = remaining - 1
+            if new_remaining > 0:
+                self._agent_hold_steps_remaining[handle] = new_remaining
+            else:
+                self._agent_hold_steps_remaining.pop(handle, None)
+        self._held_agents_last_step = []
 
     def _get_current_malfunction_state(self) -> Dict[int, bool]:
         return {
@@ -1265,6 +1413,7 @@ class FlatlandViewer(QMainWindow):
         self._draw_path_previews(draw, cell_width, cell_height)
         self._draw_conflict_overlays(draw, cell_width, cell_height)
         self._draw_agent_annotations(draw, cell_width, cell_height, img_width, img_height, border_thickness)
+        self._draw_step_counter(draw, img_width, img_height)
         annotated = image.convert("RGB") if original_channels == 3 else image
         return np.array(annotated)
 
@@ -1348,27 +1497,41 @@ class FlatlandViewer(QMainWindow):
     ) -> None:
         if not self._path_preview_cells:
             return
-        for cells, color in self._path_preview_cells.values():
+        handle_colors = {handle: color for handle, (_, color) in self._path_preview_cells.items()}
+        cell_handles: Dict[Tuple[int, int], Set[int]] = {}
+        for handle, (cells, _) in self._path_preview_cells.items():
             for row, col in cells:
-                left = col * cell_width
-                top = row * cell_height
-                right = left + cell_width
-                bottom = top + cell_height
-                inset = min(cell_width, cell_height) * 0.25
-                if inset > 0:
-                    left += inset
-                    top += inset
-                    right -= inset
-                    bottom -= inset
-                    if right <= left or bottom <= top:
-                        left = col * cell_width
-                        top = row * cell_height
-                        right = left + cell_width
-                        bottom = top + cell_height
-                draw.rectangle(
-                    [left, top, right, bottom],
-                    fill=color,
-                )
+                cell_handles.setdefault((row, col), set()).add(handle)
+        overlap_color = (128, 0, 128, 160)
+        for (row, col), handles in cell_handles.items():
+            if not handles:
+                continue
+            if len(handles) > 1:
+                fill_color = overlap_color
+            else:
+                handle = next(iter(handles))
+                fill_color = handle_colors.get(handle)
+                if fill_color is None:
+                    continue
+            left = col * cell_width
+            top = row * cell_height
+            right = left + cell_width
+            bottom = top + cell_height
+            inset = min(cell_width, cell_height) * 0.25
+            if inset > 0:
+                left += inset
+                top += inset
+                right -= inset
+                bottom -= inset
+                if right <= left or bottom <= top:
+                    left = col * cell_width
+                    top = row * cell_height
+                    right = left + cell_width
+                    bottom = top + cell_height
+            draw.rectangle(
+                [left, top, right, bottom],
+                fill=fill_color,
+            )
 
     def _draw_agent_annotations(
         self,
@@ -1462,10 +1625,26 @@ class FlatlandViewer(QMainWindow):
             if handle in self._malfunctioned_handles:
                 self._last_highlight_rects[handle] = rect
 
+    def _filter_conflicts(self, conflicts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        focus = self._conflict_focus_handles
+        if not focus:
+            return list(conflicts)
+        filtered: List[Dict[str, Any]] = []
+        for conflict in conflicts:
+            agents = tuple(conflict.get("agents", ()))
+            if not agents:
+                continue
+            agent_set = set(agents)
+            if agent_set and agent_set.issubset(focus) and len(agent_set) >= 2:
+                filtered.append(conflict)
+        return filtered
+
     def _update_conflict_overlays(self, conflicts: List[Dict[str, Any]]) -> None:
+        relevant_conflicts = self._filter_conflicts(conflicts)
+        self._focused_conflicts = relevant_conflicts
         self._conflict_highlight_cells = {}
         self._conflict_agents = set()
-        for conflict in conflicts:
+        for conflict in relevant_conflicts:
             cells: Set[Tuple[int, int]] = set()
             resource_id = conflict.get("resource_id")
             if isinstance(resource_id, tuple) and resource_id:
@@ -1486,6 +1665,48 @@ class FlatlandViewer(QMainWindow):
             for agent in agents:
                 self._conflict_agents.add(agent)
         self._update_frame()
+
+    def _draw_step_counter(self, draw: ImageDraw.ImageDraw, img_width: float, img_height: float) -> None:
+        text_parts = [f"Step {self._step_count}"]
+        if self._episode_done:
+            text_parts.append("Finished")
+        elif self._is_paused:
+            text_parts.append("Paused")
+        text = " | ".join(text_parts)
+        padding = 6
+        text_width, text_height = self._measure_text(draw, text)
+        left = padding
+        top = padding
+        background_rect = [
+            left - padding,
+            top - padding,
+            min(img_width, left + text_width + padding),
+            min(img_height, top + text_height + padding),
+        ]
+        self._draw_text_with_background(
+            draw,
+            text,
+            (left, top),
+            background_rect,
+            fill=(255, 255, 255, 240),
+            background=(0, 0, 0, 180),
+        )
+
+    def set_conflict_focus(self, handles: Iterable[int]) -> None:
+        focus_set = {int(handle) for handle in handles if handle is not None}
+        if not focus_set:
+            self.clear_conflict_focus()
+            return
+        if self._conflict_focus_handles == focus_set:
+            return
+        self._conflict_focus_handles = focus_set
+        self._update_conflict_overlays(self._active_conflicts)
+
+    def clear_conflict_focus(self) -> None:
+        if self._conflict_focus_handles is None:
+            return
+        self._conflict_focus_handles = None
+        self._update_conflict_overlays(self._active_conflicts)
 
     def _evaluate_conflicts(self, show_dialog: bool = False, force_dialog: bool = False) -> None:
         if self._conflict_predictor is None:
@@ -1544,6 +1765,13 @@ class FlatlandViewer(QMainWindow):
             self._timer.start()
         self._resume_after_conflict = False
 
+    def ensure_simulation_running(self) -> None:
+        if self._episode_done or self._manual_pause:
+            return
+        self._is_paused = False
+        if not self._timer.isActive():
+            self._timer.start()
+
     def _close_conflict_dialog(self) -> None:
         if self._conflict_dialog is not None and not sip.isdeleted(self._conflict_dialog):
             try:
@@ -1560,6 +1788,8 @@ class FlatlandViewer(QMainWindow):
         self.clear_preview_paths()
         self._conflict_dialog = None
         if not self._active_conflicts:
+            self.clear_conflict_focus()
+            self.ensure_simulation_running()
             self._resume_after_conflict_if_needed()
 
     def describe_conflicts(self, conflicts: List[Dict[str, Any]]) -> str:
@@ -1599,6 +1829,12 @@ class FlatlandViewer(QMainWindow):
             return 0
         return self._conflict_predictor.get_selected_path_index(handle)
 
+    def get_agent_hold_remaining(self, handle: int) -> int:
+        return self._agent_hold_steps_remaining.get(handle, 0)
+
+    def get_agent_cumulative_delay(self, handle: int) -> int:
+        return self._agent_delay_plan.get(handle, 0)
+
     def describe_suggestion(self, suggestion: Dict[int, int]) -> str:
         if not suggestion:
             return "No conflict-free alternative could be found automatically."
@@ -1621,7 +1857,22 @@ class FlatlandViewer(QMainWindow):
                 return overrides
         return {}
 
-    def apply_path_selection(self, selections: Dict[int, int]) -> Tuple[bool, List[Dict[str, Any]]]:
+    def preview_conflict_resolution(self, selections: Dict[int, int], delays: Dict[int, int]) -> Tuple[bool, List[Dict[str, Any]]]:
+        if self._conflict_predictor is None:
+            return True, []
+        delay_overrides: Dict[int, int] = dict(self._agent_delay_plan)
+        for handle, value in delays.items():
+            additional = max(0, int(value))
+            if additional > 0:
+                delay_overrides[handle] = delay_overrides.get(handle, 0) + additional
+            elif handle not in delay_overrides:
+                delay_overrides[handle] = 0
+        delay_overrides = {h: v for h, v in delay_overrides.items() if v > 0}
+        _, conflicts = self._conflict_predictor.evaluate_selection(selections, delay_overrides=delay_overrides)
+        filtered = self._filter_conflicts(conflicts)
+        return not filtered, filtered
+
+    def apply_path_selection(self, selections: Dict[int, int], delays: Optional[Dict[int, int]] = None) -> Tuple[bool, List[Dict[str, Any]]]:
         if self._conflict_predictor is None:
             return True, []
         changed = False
@@ -1629,36 +1880,56 @@ class FlatlandViewer(QMainWindow):
             if self._conflict_predictor.get_selected_path_index(handle) != index:
                 self._conflict_predictor.select_agent_path(handle, index)
                 changed = True
+        self._update_agent_delays(delays or {})
         if changed:
             self._rebuild_agent_plans()
         self._evaluate_conflicts(show_dialog=False)
-        resolved = not self._active_conflicts
-        return resolved, self._active_conflicts
+        filtered_conflicts = self._filter_conflicts(self._active_conflicts)
+        resolved = not filtered_conflicts
+        return resolved, filtered_conflicts
 
-    def refresh_conflict_state(self, conflicts: List[Dict[str, Any]]) -> None:
-        self._active_conflicts = conflicts
-        self._update_conflict_overlays(conflicts)
-        if conflicts:
+    def _update_agent_delays(self, delays: Dict[int, int]) -> None:
+        if not delays and not self._agent_delay_plan:
+            return
+        for handle, value in delays.items():
+            steps = max(0, int(value))
+            if steps > 0:
+                cumulative = self._agent_delay_plan.get(handle, 0) + steps
+                self._agent_delay_plan[handle] = cumulative
+                self._agent_hold_steps_remaining[handle] = steps
+                if self._conflict_predictor is not None:
+                    self._conflict_predictor.set_agent_delay(handle, cumulative)
+            else:
+                self._agent_hold_steps_remaining.pop(handle, None)
+                if handle not in self._agent_delay_plan and self._conflict_predictor is not None:
+                    self._conflict_predictor.clear_agent_delay(handle)
+
+    def refresh_conflict_state(self, conflicts: Optional[List[Dict[str, Any]]] = None) -> None:
+        if conflicts is not None:
+            self._active_conflicts = conflicts
+        base_conflicts = self._active_conflicts
+        self._update_conflict_overlays(base_conflicts)
+        if base_conflicts:
             signature = tuple(
                 sorted(
                     (
                         conflict.get("resource_id"),
                         tuple(sorted(conflict.get("agents", ())))
                     )
-                    for conflict in conflicts
+                    for conflict in base_conflicts
                 )
             )
             self._active_conflict_signature = signature
             if self._conflict_dialog is not None and not sip.isdeleted(self._conflict_dialog):
                 try:
-                    self._conflict_dialog.update_conflicts(conflicts)
+                    self._conflict_dialog.update_conflicts(base_conflicts)
                 except RuntimeError:
                     pass
         else:
             self._active_conflict_signature = None
             if self._conflict_dialog is not None and not sip.isdeleted(self._conflict_dialog):
                 try:
-                    self._conflict_dialog.update_conflicts(conflicts)
+                    self._conflict_dialog.update_conflicts([])
                 except RuntimeError:
                     pass
 
@@ -1813,6 +2084,9 @@ class FlatlandViewer(QMainWindow):
     def _on_end_simulation(self) -> None:
         if self._episode_done:
             return
+        self._close_conflict_dialog()
+        self.clear_preview_paths()
+        self.clear_conflict_focus()
         self._episode_done = True
         self._is_paused = True
         self._manual_pause = False
@@ -1824,6 +2098,8 @@ class FlatlandViewer(QMainWindow):
         self._set_pause_button_appearance(paused=False)
         self._pause_button.setEnabled(False)
         self._sidebar_header.setText("Malfunction Monitor (Simulation Ended)")
+        self._agent_hold_steps_remaining.clear()
+        self._agent_delay_plan.clear()
         self._update_frame()
         self._open_incident_list()
 
@@ -2627,3 +2903,4 @@ class FormulateSolutionWindow(QMainWindow):
 
 if __name__ == "__main__":
     sys.exit(main())
+
