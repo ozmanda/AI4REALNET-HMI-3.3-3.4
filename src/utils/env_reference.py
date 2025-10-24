@@ -4,9 +4,9 @@ from typing import NamedTuple, List, Dict, Tuple, Any, Union
 
 import networkx as nx
 from networkx import DiGraph
-from src.utils.flatland_railway_extension.RailroadSwitchAnalyser import RailroadSwitchAnalyser
-from src.utils.flatland_railway_extension.RailroadSwitchCluster import RailroadSwitchCluster
-from src.utils.flatland_railway_extension.FlatlandGraphBuilder import FlatlandGraphBuilder
+from src.utils.graph.flatland_railway_extension.RailroadSwitchAnalyser import RailroadSwitchAnalyser
+from src.utils.graph.flatland_railway_extension.RailroadSwitchCluster import RailroadSwitchCluster
+from src.utils.graph.flatland_railway_extension.FlatlandGraphBuilder import FlatlandGraphBuilder
 
 class Transition(NamedTuple):
     state: dict
