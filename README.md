@@ -1,3 +1,5 @@
+!! THIS REPO IS DEPRECATED - MIGRATED TO https://github.com/CyberneticLearningSystems/AI4REALNET-HMI-3.3-3.4 !!
+
 # AI4REALNET Augmented Decision-Making HMI
 
 This HMI is developed for augmented human decision making, considering two interaction types: 
